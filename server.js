@@ -218,6 +218,18 @@ app.get('/api/guilds/:id/audit-logs', requireAuth, async (req, res) => {
   catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
+// ── Messages ───────────────────────────────────────────────────
+app.post('/api/guilds/:id/channels/:channelId/messages', requireAuth, async (req, res) => {
+  const { content } = req.body;
+  if (!content || !content.trim()) return res.status(400).json({ error: 'Nachrichteninhalt fehlt' });
+  try {
+    res.json(await discordBot(`/channels/${req.params.channelId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content: content.trim() }),
+    }));
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
 // ── SPA ───────────────────────────────────────────────────────
 app.get('/app', (req, res) => res.sendFile(__dirname + '/public/index.html'));
 
