@@ -2317,11 +2317,36 @@ function openCategoryEditor(idx) {
     buttonLabel: 'Ticket erstellen',
     buttonStyle: 1,
     buttonEmoji: '🎫',
+    buttons: {},
+    maxTicketsPerUser: 1,
+    blacklistRoles: [],
+    mentionSupportRoles: false,
+    askCloseReason: false,
+    closeDelay: 5,
+    sendTranscript: true,
+    dmOnClose: '',
   };
+
+  // Button definitions for the per-category button configurator
+  const BTNS_META = [
+    { key: 'close',      name: '🔒 Schließen',          defLabel: '🔒 Schließen',       defStyle: 4, defEnabled: true  },
+    { key: 'claim',      name: '✋ Claimen',              defLabel: '✋ Claimen',          defStyle: 1, defEnabled: true  },
+    { key: 'priority',   name: '📊 Priorität',            defLabel: '📊 Priorität',        defStyle: 2, defEnabled: true  },
+    { key: 'forward',    name: '↗️ Weiterleiten',         defLabel: '↗️ Weiterleiten',     defStyle: 2, defEnabled: true  },
+    { key: 'addUser',    name: '👤 Nutzer hinzufügen',    defLabel: '👤 Nutzer',           defStyle: 2, defEnabled: true  },
+    { key: 'removeUser', name: '🚫 Nutzer entfernen',     defLabel: '🚫 Entfernen',        defStyle: 2, defEnabled: false },
+    { key: 'lock',       name: '🔇 Kanal sperren/öffnen', defLabel: '🔇 Sperren',         defStyle: 2, defEnabled: false },
+    { key: 'transcript', name: '📋 Transcript senden',    defLabel: '📋 Transcript',       defStyle: 2, defEnabled: false },
+    { key: 'rename',     name: '✏️ Umbenennen',           defLabel: '✏️ Umbenennen',       defStyle: 2, defEnabled: false },
+  ];
 
   const allRoles = (S.roles || []).filter(r => r.name !== '@everyone');
   const roleOpts = allRoles.map(r => {
     const selected = (cat.supportRoles || []).includes(r.id) ? 'selected' : '';
+    return `<option value="${esc(r.id)}" ${selected}>${esc(r.name)}</option>`;
+  }).join('');
+  const blacklistOpts = allRoles.map(r => {
+    const selected = (cat.blacklistRoles || []).includes(r.id) ? 'selected' : '';
     return `<option value="${esc(r.id)}" ${selected}>${esc(r.name)}</option>`;
   }).join('');
 
@@ -2330,17 +2355,45 @@ function openCategoryEditor(idx) {
     parentCats.map(c => `<option value="${esc(c.id)}" ${cat.parentCategory === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
 
   const colorHex = '#' + (cat.panelColor || 5814783).toString(16).padStart(6, '0');
+  const catBtns  = cat.buttons || {};
+
+  const btnRows = BTNS_META.map(bm => {
+    const bc = catBtns[bm.key];
+    const enabled = (bc && typeof bc === 'object') ? bc.enabled !== false : (bc === undefined ? bm.defEnabled : bc !== false);
+    const label   = (bc && bc.label) || bm.defLabel;
+    const emoji   = (bc && bc.emoji) || '';
+    const style   = (bc && bc.style) || bm.defStyle;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
+      <label class="toggle" style="flex-shrink:0">
+        <input type="checkbox" class="cat-btn-toggle" data-bkey="${bm.key}" ${enabled?'checked':''}>
+        <span class="toggle-slider"></span>
+      </label>
+      <div style="flex:0 0 165px;font-size:13px;white-space:nowrap">${bm.name}</div>
+      <div class="cat-btn-fields" data-bkey="${bm.key}" style="display:${enabled?'flex':'none'};flex:1;gap:6px;align-items:center">
+        <input class="input-sm cat-btn-label" data-bkey="${bm.key}" value="${esc(label)}" placeholder="Label" style="flex:1;min-width:0">
+        <input class="input-sm cat-btn-emoji" data-bkey="${bm.key}" value="${esc(emoji)}" placeholder="Emoji" style="width:56px">
+        <select class="select-sm cat-btn-style" data-bkey="${bm.key}" style="width:105px">
+          <option value="1" ${style===1?'selected':''}>🔵 Primär</option>
+          <option value="2" ${style===2?'selected':''}>⚫ Sekundär</option>
+          <option value="3" ${style===3?'selected':''}>🟢 Erfolg</option>
+          <option value="4" ${style===4?'selected':''}>🔴 Gefahr</option>
+        </select>
+      </div>
+    </div>`;
+  }).join('');
 
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
   bg.innerHTML = `
-    <div class="modal-lg" style="max-width:680px">
+    <div class="modal-lg" style="max-width:720px">
       <div class="modal-lg-head">
         <h3 style="font-size:18px;font-weight:700;margin-bottom:4px">${idx !== null ? '✏️ Kategorie bearbeiten' : '➕ Kategorie erstellen'}</h3>
         <p style="color:var(--txt2);font-size:13px">Alle Einstellungen für diese Ticket-Kategorie</p>
       </div>
       <div class="modal-lg-body">
 
+        <!-- ── Basis ── -->
+        <div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Allgemein</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
           <div>
             <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Name *</label>
@@ -2366,19 +2419,20 @@ function openCategoryEditor(idx) {
           </div>
         </div>
 
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Support-Rollen (Strg/Cmd für Mehrfachauswahl)</label>
-        <select class="modal-input" id="tc-roles" multiple style="margin-bottom:12px;height:90px">${roleOpts}</select>
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Support-Rollen <span style="font-weight:400">(Strg/Cmd für Mehrfachauswahl)</span></label>
+        <select class="modal-input" id="tc-roles" multiple style="margin-bottom:12px;height:80px">${roleOpts}</select>
 
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Willkommensnachricht <span style="color:var(--txt3);font-weight:400">({user}, {category}, {counter})</span></label>
-        <textarea class="modal-input" id="tc-welcome" rows="3" style="margin-bottom:12px;resize:vertical">${esc(cat.welcomeMessage || '')}</textarea>
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Willkommensnachricht <span style="font-weight:400">({user}, {category}, {counter})</span></label>
+        <textarea class="modal-input" id="tc-welcome" rows="3" style="margin-bottom:16px;resize:vertical">${esc(cat.welcomeMessage || '')}</textarea>
 
+        <!-- ── Panel ── -->
         <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:12px">
           <div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Panel-Einstellungen</div>
           <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Panel-Titel</label>
           <input class="modal-input" id="tc-ptitle" value="${esc(cat.panelTitle || '')}" style="margin-bottom:10px">
           <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Panel-Beschreibung</label>
           <textarea class="modal-input" id="tc-pdesc" rows="2" style="margin-bottom:10px;resize:vertical">${esc(cat.panelDescription || '')}</textarea>
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:0">
             <div>
               <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Farbe</label>
               <input type="color" id="tc-color" value="${colorHex}" style="width:44px;height:34px;border:none;border-radius:6px;cursor:pointer;padding:2px;background:var(--input)">
@@ -2391,14 +2445,63 @@ function openCategoryEditor(idx) {
               <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Button-Emoji</label>
               <input class="modal-input" id="tc-bemoji" value="${esc(cat.buttonEmoji || '🎫')}" placeholder="🎫" style="margin-bottom:0;width:70px">
             </div>
+            <div>
+              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Button-Stil</label>
+              <select class="modal-input" id="tc-bstyle" style="cursor:pointer;margin-bottom:0;width:130px">
+                <option value="1" ${cat.buttonStyle===1?'selected':''}>🔵 Primär</option>
+                <option value="2" ${cat.buttonStyle===2?'selected':''}>⚫ Sekundär</option>
+                <option value="3" ${cat.buttonStyle===3?'selected':''}>🟢 Erfolg</option>
+                <option value="4" ${cat.buttonStyle===4?'selected':''}>🔴 Gefährlich</option>
+              </select>
+            </div>
           </div>
-          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Button-Stil</label>
-          <select class="modal-input" id="tc-bstyle" style="cursor:pointer;margin-bottom:0">
-            <option value="1" ${cat.buttonStyle===1?'selected':''}>🔵 Primär (Blau)</option>
-            <option value="2" ${cat.buttonStyle===2?'selected':''}>⚫ Sekundär (Grau)</option>
-            <option value="3" ${cat.buttonStyle===3?'selected':''}>🟢 Erfolg (Grün)</option>
-            <option value="4" ${cat.buttonStyle===4?'selected':''}>🔴 Gefährlich (Rot)</option>
-          </select>
+        </div>
+
+        <!-- ── Ticket-Buttons ── -->
+        <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Ticket-Buttons</div>
+          <div style="font-size:12px;color:var(--txt3);margin-bottom:10px">Welche Aktions-Buttons im Ticket erscheinen sollen. Label, Emoji und Stil sind frei konfigurierbar.</div>
+          <div style="background:var(--sidebar);border-radius:8px;padding:0 12px">
+            ${btnRows}
+            <div style="height:1px"></div>
+          </div>
+        </div>
+
+        <!-- ── Erweiterte Einstellungen ── -->
+        <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:4px">
+          <div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Erweiterte Einstellungen</div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div>
+              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Max. Tickets pro Nutzer</label>
+              <input class="modal-input" id="tc-maxtickets" type="number" min="1" max="20" value="${cat.maxTicketsPerUser||1}" style="margin-bottom:0">
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Schließ-Verzögerung (Sek.)</label>
+              <input class="modal-input" id="tc-closedelay" type="number" min="0" max="300" value="${cat.closeDelay??5}" style="margin-bottom:0">
+            </div>
+          </div>
+
+          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Gesperrte Rollen (dürfen kein Ticket erstellen)</label>
+          <select class="modal-input" id="tc-blacklist" multiple style="margin-bottom:12px;height:70px">${blacklistOpts || '<option disabled>Keine Rollen vorhanden</option>'}</select>
+
+          <div style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:14px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
+              <label class="toggle"><input type="checkbox" id="tc-mention" ${cat.mentionSupportRoles?'checked':''}><span class="toggle-slider"></span></label>
+              <span style="font-size:13px">Support-Rollen erwähnen</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
+              <label class="toggle"><input type="checkbox" id="tc-closereason" ${cat.askCloseReason?'checked':''}><span class="toggle-slider"></span></label>
+              <span style="font-size:13px">Schließ-Grund abfragen</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
+              <label class="toggle"><input type="checkbox" id="tc-sendtranscript" ${cat.sendTranscript!==false?'checked':''}><span class="toggle-slider"></span></label>
+              <span style="font-size:13px">Transcript senden</span>
+            </label>
+          </div>
+
+          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">DM bei Ticket-Schließung <span style="font-weight:400">({user}, {server}, {ticket}, {category}, {reason})</span></label>
+          <textarea class="modal-input" id="tc-dmonclose" rows="2" style="margin-bottom:0;resize:vertical" placeholder="Leer lassen = keine DM…">${esc(cat.dmOnClose||'')}</textarea>
         </div>
 
       </div>
@@ -2412,31 +2515,66 @@ function openCategoryEditor(idx) {
   bg.querySelector('#tc-cancel').onclick = () => bg.remove();
   bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
 
+  // Wire up button-config toggles to show/hide the fields row
+  bg.querySelectorAll('.cat-btn-toggle').forEach(chk => {
+    chk.addEventListener('change', () => {
+      const fields = bg.querySelector(`.cat-btn-fields[data-bkey="${chk.dataset.bkey}"]`);
+      if (fields) fields.style.display = chk.checked ? 'flex' : 'none';
+    });
+  });
+
   bg.querySelector('#tc-ok').onclick = async () => {
     const name = bg.querySelector('#tc-name').value.trim();
     if (!name) { bg.querySelector('#tc-name').style.borderColor = 'var(--red)'; return; }
 
-    const roleSelect = bg.querySelector('#tc-roles');
-    const supportRoles = [...roleSelect.selectedOptions].map(o => o.value);
+    const roleSelect      = bg.querySelector('#tc-roles');
+    const blacklistSelect = bg.querySelector('#tc-blacklist');
+    const supportRoles    = [...roleSelect.selectedOptions].map(o => o.value);
+    const blacklistRoles  = blacklistSelect ? [...blacklistSelect.selectedOptions].map(o => o.value) : [];
 
-    const colorVal = bg.querySelector('#tc-color').value;
+    const colorVal   = bg.querySelector('#tc-color').value;
     const panelColor = parseInt(colorVal.replace('#', ''), 16);
+
+    // Collect per-button configs
+    const buttons = {};
+    BTNS_META.forEach(bm => {
+      const toggle = bg.querySelector(`.cat-btn-toggle[data-bkey="${bm.key}"]`);
+      const label  = bg.querySelector(`.cat-btn-label[data-bkey="${bm.key}"]`);
+      const emoji  = bg.querySelector(`.cat-btn-emoji[data-bkey="${bm.key}"]`);
+      const style  = bg.querySelector(`.cat-btn-style[data-bkey="${bm.key}"]`);
+      buttons[bm.key] = {
+        enabled: toggle?.checked || false,
+        label:   label?.value.trim() || bm.defLabel,
+        emoji:   emoji?.value.trim() || '',
+        style:   parseInt(style?.value) || bm.defStyle,
+      };
+    });
 
     const updated = {
       ...cat,
       name,
-      emoji:           bg.querySelector('#tc-emoji').value.trim() || '🎫',
-      description:     bg.querySelector('#tc-desc').value.trim(),
-      channelPrefix:   bg.querySelector('#tc-prefix').value.trim() || 'ticket',
-      parentCategory:  bg.querySelector('#tc-parent').value || null,
+      emoji:              bg.querySelector('#tc-emoji').value.trim() || '🎫',
+      description:        bg.querySelector('#tc-desc').value.trim(),
+      channelPrefix:      bg.querySelector('#tc-prefix').value.trim() || 'ticket',
+      parentCategory:     bg.querySelector('#tc-parent').value || null,
       supportRoles,
-      welcomeMessage:  bg.querySelector('#tc-welcome').value,
-      panelTitle:      bg.querySelector('#tc-ptitle').value.trim(),
-      panelDescription:bg.querySelector('#tc-pdesc').value.trim(),
+      welcomeMessage:     bg.querySelector('#tc-welcome').value,
+      panelTitle:         bg.querySelector('#tc-ptitle').value.trim(),
+      panelDescription:   bg.querySelector('#tc-pdesc').value.trim(),
       panelColor,
-      buttonLabel:     bg.querySelector('#tc-blabel').value.trim() || 'Ticket erstellen',
-      buttonEmoji:     bg.querySelector('#tc-bemoji').value.trim(),
-      buttonStyle:     parseInt(bg.querySelector('#tc-bstyle').value),
+      buttonLabel:        bg.querySelector('#tc-blabel').value.trim() || 'Ticket erstellen',
+      buttonEmoji:        bg.querySelector('#tc-bemoji').value.trim(),
+      buttonStyle:        parseInt(bg.querySelector('#tc-bstyle').value),
+      // Per-button config
+      buttons,
+      // Advanced settings
+      maxTicketsPerUser:  parseInt(bg.querySelector('#tc-maxtickets')?.value) || 1,
+      closeDelay:         parseInt(bg.querySelector('#tc-closedelay')?.value) ?? 5,
+      blacklistRoles,
+      mentionSupportRoles: bg.querySelector('#tc-mention')?.checked || false,
+      askCloseReason:      bg.querySelector('#tc-closereason')?.checked || false,
+      sendTranscript:      bg.querySelector('#tc-sendtranscript')?.checked !== false,
+      dmOnClose:           bg.querySelector('#tc-dmonclose')?.value.trim() || '',
     };
     bg.remove();
 
@@ -2497,13 +2635,18 @@ function renderTkSettings() {
     </div>
 
     <div class="tk-sec">
-      <div class="tk-sec-title">Ticket-Buttons</div>
+      <div class="tk-sec-title">Standard-Buttons (globaler Fallback)</div>
+      <div style="font-size:12px;color:var(--txt3);margin-bottom:10px">Diese Einstellungen gelten als Fallback, wenn eine Kategorie keinen eigenen Button-Status hat. Per Kategorie konfigurierbar über ✏️ Bearbeiten.</div>
       ${[
-        ['close',   '🔒 Schließen',         'Ticket-Schließen Button'],
-        ['claim',   '✋ Claimen',           'Support-Mitglied beansprucht Ticket'],
-        ['priority','📊 Priorität',         'Priorität setzen Button'],
-        ['forward', '↗️ Weiterleiten',      'An andere Kategorie weiterleiten'],
-        ['addUser', '👤 Nutzer hinzufügen', 'Weiteren Nutzer zum Ticket hinzufügen'],
+        ['close',      '🔒 Schließen',          'Ticket schließen'],
+        ['claim',      '✋ Claimen',              'Ticket beanspruchen'],
+        ['priority',   '📊 Priorität',            'Priorität setzen'],
+        ['forward',    '↗️ Weiterleiten',          'An andere Kategorie weiterleiten'],
+        ['addUser',    '👤 Nutzer hinzufügen',    'Nutzer zum Ticket hinzufügen'],
+        ['removeUser', '🚫 Nutzer entfernen',     'Nutzer aus Ticket entfernen'],
+        ['lock',       '🔇 Sperren/Entsperren',   'Schreibrechte ein-/ausschalten'],
+        ['transcript', '📋 Transcript',           'Transcript manuell senden'],
+        ['rename',     '✏️ Umbenennen',           'Ticket-Kanal umbenennen'],
       ].map(([key, label, sub]) => `
         <div class="tk-row">
           <div><div class="tk-lbl">${label}</div><div class="tk-sub">${sub}</div></div>

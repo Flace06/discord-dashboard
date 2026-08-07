@@ -82,6 +82,7 @@ client.on('interactionCreate', async interaction => {
     else if (interaction.isButton())           await handleButton(interaction);
     else if (interaction.isStringSelectMenu()) await handleStringSelect(interaction);
     else if (interaction.isUserSelectMenu())   await handleUserSelect(interaction);
+    else if (interaction.isModalSubmit())      await handleModalSubmit(interaction);
   } catch (e) {
     console.error('Interaction error:', e);
     try {
@@ -191,8 +192,19 @@ async function handleButton(interaction) {
     const ticket = cfg.getTicket(interaction.channel.id);
     if (!ticket) return interaction.reply({ content: '❌ Dies ist kein Ticket.', ephemeral: true });
     const guildCfg = cfg.getGuild(interaction.guild.id);
-    await interaction.reply({ content: `🔒 ${guildCfg.closeMessage || 'Ticket wird geschlossen…'}` });
-    await closeTicket(interaction.channel, ticket, `Geschlossen von ${interaction.user.tag}`);
+    const cat = guildCfg.categories?.find(c => c.id === ticket.categoryId);
+    if (cat?.askCloseReason) {
+      const closeModal = new ModalBuilder().setCustomId('modal_close_ticket').setTitle('Ticket schließen');
+      const reasonInput = new TextInputBuilder()
+        .setCustomId('close_reason').setLabel('Grund für das Schließen')
+        .setStyle(TextInputStyle.Paragraph).setRequired(false)
+        .setPlaceholder('Optional: Grund eingeben…');
+      closeModal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+      await interaction.showModal(closeModal);
+    } else {
+      await interaction.reply({ content: `🔒 ${guildCfg.closeMessage || 'Ticket wird geschlossen…'}` });
+      await closeTicket(interaction.channel, ticket, `Geschlossen von ${interaction.user.tag}`);
+    }
 
   } else if (id === 'ticket_claim') {
     const ticket = cfg.getTicket(interaction.channel.id);
@@ -207,9 +219,7 @@ async function handleButton(interaction) {
     const options = (guildCfg.priorities || ['🟢 Niedrig', '🟡 Mittel', '🔴 Hoch', '⚡ Kritisch'])
       .map((p, i) => ({ label: p, value: `priority_${i}` }));
     const select = new StringSelectMenuBuilder()
-      .setCustomId('select_priority')
-      .setPlaceholder('Priorität auswählen')
-      .addOptions(options);
+      .setCustomId('select_priority').setPlaceholder('Priorität auswählen').addOptions(options);
     await interaction.reply({
       content: '📊 Priorität auswählen:',
       components: [new ActionRowBuilder().addComponents(select)],
@@ -225,9 +235,7 @@ async function handleButton(interaction) {
     }));
     if (!options.length) return interaction.reply({ content: '❌ Keine Kategorien verfügbar.', ephemeral: true });
     const select = new StringSelectMenuBuilder()
-      .setCustomId('select_forward')
-      .setPlaceholder('Ziel-Kategorie auswählen')
-      .addOptions(options);
+      .setCustomId('select_forward').setPlaceholder('Ziel-Kategorie auswählen').addOptions(options);
     await interaction.reply({
       content: '↗️ An welche Kategorie weiterleiten?',
       components: [new ActionRowBuilder().addComponents(select)],
@@ -235,14 +243,56 @@ async function handleButton(interaction) {
     });
 
   } else if (id === 'ticket_add_user') {
-    const select = new UserSelectMenuBuilder()
-      .setCustomId('select_add_user')
-      .setPlaceholder('Nutzer auswählen');
+    const select = new UserSelectMenuBuilder().setCustomId('select_add_user').setPlaceholder('Nutzer auswählen');
     await interaction.reply({
       content: '👤 Nutzer zum Ticket hinzufügen:',
       components: [new ActionRowBuilder().addComponents(select)],
       ephemeral: true,
     });
+
+  } else if (id === 'ticket_remove_user') {
+    const select = new UserSelectMenuBuilder().setCustomId('select_remove_user').setPlaceholder('Nutzer auswählen');
+    await interaction.reply({
+      content: '🚫 Welchen Nutzer möchtest du entfernen?',
+      components: [new ActionRowBuilder().addComponents(select)],
+      ephemeral: true,
+    });
+
+  } else if (id === 'ticket_lock') {
+    const ticket = cfg.getTicket(interaction.channel.id);
+    if (!ticket) return interaction.reply({ content: '❌ Dies ist kein Ticket.', ephemeral: true });
+    const overwrite = interaction.channel.permissionOverwrites.cache.get(ticket.userId);
+    const isLocked = overwrite && overwrite.deny.has(PermissionFlagsBits.SendMessages);
+    if (isLocked) {
+      await interaction.channel.permissionOverwrites.edit(ticket.userId, { SendMessages: true });
+      await interaction.reply({ content: `🔓 Ticket wurde entsperrt. ${interaction.guild.members.cache.get(ticket.userId) || ''} kann wieder schreiben.` });
+    } else {
+      await interaction.channel.permissionOverwrites.edit(ticket.userId, { SendMessages: false });
+      await interaction.reply({ content: `🔒 Ticket wurde gesperrt. Der Ticket-Ersteller kann nicht mehr schreiben.` });
+    }
+
+  } else if (id === 'ticket_transcript') {
+    const ticket = cfg.getTicket(interaction.channel.id);
+    if (!ticket) return interaction.reply({ content: '❌ Dies ist kein Ticket.', ephemeral: true });
+    const guildCfg = cfg.getGuild(interaction.guild.id);
+    await interaction.deferReply({ ephemeral: true });
+    if (!guildCfg.logChannel) return interaction.editReply({ content: '❌ Kein Log-Kanal konfiguriert.' });
+    try {
+      const logCh = await client.channels.fetch(guildCfg.logChannel).catch(() => null);
+      if (!logCh) return interaction.editReply({ content: '❌ Log-Kanal nicht gefunden.' });
+      await sendTranscriptToLog(interaction.channel, ticket, `Manuell von ${interaction.user.tag}`, logCh);
+      await interaction.editReply({ content: '✅ Transcript wurde in den Log-Kanal gesendet.' });
+    } catch { await interaction.editReply({ content: '❌ Fehler beim Erstellen des Transcripts.' }); }
+
+  } else if (id === 'ticket_rename') {
+    const ticket = cfg.getTicket(interaction.channel.id);
+    if (!ticket) return interaction.reply({ content: '❌ Dies ist kein Ticket.', ephemeral: true });
+    const renameModal = new ModalBuilder().setCustomId('modal_rename_ticket').setTitle('Ticket umbenennen');
+    const nameInput = new TextInputBuilder()
+      .setCustomId('rename_input').setLabel('Neuer Kanalname')
+      .setStyle(TextInputStyle.Short).setValue(interaction.channel.name).setMaxLength(100);
+    renameModal.addComponents(new ActionRowBuilder().addComponents(nameInput));
+    await interaction.showModal(renameModal);
   }
 }
 
@@ -284,7 +334,8 @@ async function handleStringSelect(interaction) {
 
 // ── User select handler ──────────────────────────────────────
 async function handleUserSelect(interaction) {
-  if (interaction.customId === 'select_add_user') {
+  const id = interaction.customId;
+  if (id === 'select_add_user') {
     const user = interaction.users.first();
     if (!user) return interaction.update({ content: '❌ Kein Nutzer ausgewählt.', components: [] });
     await interaction.channel.permissionOverwrites.edit(user.id, {
@@ -292,6 +343,38 @@ async function handleUserSelect(interaction) {
     });
     await interaction.update({ content: `✅ ${user} wurde zum Ticket hinzugefügt.`, components: [] });
     await interaction.channel.send({ content: `👤 ${user} wurde von ${interaction.user} zum Ticket hinzugefügt.` });
+
+  } else if (id === 'select_remove_user') {
+    const user = interaction.users.first();
+    if (!user) return interaction.update({ content: '❌ Kein Nutzer ausgewählt.', components: [] });
+    const ticket = cfg.getTicket(interaction.channel.id);
+    if (ticket && user.id === ticket.userId) {
+      return interaction.update({ content: '❌ Du kannst den Ticket-Ersteller nicht entfernen.', components: [] });
+    }
+    await interaction.channel.permissionOverwrites.delete(user.id);
+    await interaction.update({ content: `✅ ${user} wurde aus dem Ticket entfernt.`, components: [] });
+    await interaction.channel.send({ content: `🚫 ${user} wurde von ${interaction.user} aus dem Ticket entfernt.` });
+  }
+}
+
+// ── Modal submit handler ─────────────────────────────────────
+async function handleModalSubmit(interaction) {
+  const id = interaction.customId;
+
+  if (id === 'modal_rename_ticket') {
+    const ticket = cfg.getTicket(interaction.channel.id);
+    if (!ticket) return interaction.reply({ content: '❌ Dies ist kein Ticket.', ephemeral: true });
+    const newName = interaction.fields.getTextInputValue('rename_input').toLowerCase()
+      .replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-').slice(0, 100);
+    await interaction.channel.setName(newName);
+    await interaction.reply({ content: `✅ Ticket wurde in **${newName}** umbenannt.` });
+
+  } else if (id === 'modal_close_ticket') {
+    const ticket = cfg.getTicket(interaction.channel.id);
+    if (!ticket) return interaction.reply({ content: '❌ Dies ist kein Ticket.', ephemeral: true });
+    const reason = interaction.fields.getTextInputValue('close_reason')?.trim() || 'Kein Grund angegeben';
+    await interaction.reply({ content: `🔒 Ticket wird geschlossen… Grund: ${reason}` });
+    await closeTicket(interaction.channel, ticket, `Geschlossen von ${interaction.user.tag}: ${reason}`);
   }
 }
 
@@ -302,14 +385,28 @@ async function handleCreateTicket(interaction, categoryId) {
   const cat = guildCfg.categories.find(c => c.id === categoryId) || guildCfg.categories[0];
   if (!cat) return interaction.editReply({ content: '❌ Kategorie nicht gefunden.' });
 
-  // Check existing open ticket
-  const existing = cfg.getGuildTickets(interaction.guild.id)
-    .find(t => t.userId === interaction.user.id && t.categoryId === categoryId);
-  if (existing) {
-    const existCh = interaction.guild.channels.cache.get(existing.channelId);
-    if (existCh) return interaction.editReply({ content: `❌ Du hast bereits ein offenes Ticket: ${existCh}` });
-    // stale entry – remove it
-    cfg.deleteTicket(existing.channelId);
+  // Blacklist roles check
+  if (cat.blacklistRoles?.length) {
+    const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+    if (member && cat.blacklistRoles.some(rId => member.roles.cache.has(rId))) {
+      return interaction.editReply({ content: '❌ Du darfst keine Tickets in dieser Kategorie erstellen.' });
+    }
+  }
+
+  // Check open tickets per user in this category
+  const maxPerUser = cat.maxTicketsPerUser || 1;
+  const userTickets = cfg.getGuildTickets(interaction.guild.id)
+    .filter(t => t.userId === interaction.user.id && t.categoryId === categoryId);
+  // Remove stale entries where channel no longer exists
+  for (const t of userTickets) {
+    if (!interaction.guild.channels.cache.has(t.channelId)) cfg.deleteTicket(t.channelId);
+  }
+  const activeUserTickets = userTickets.filter(t => interaction.guild.channels.cache.has(t.channelId));
+  if (activeUserTickets.length >= maxPerUser) {
+    const existCh = interaction.guild.channels.cache.get(activeUserTickets[0].channelId);
+    return interaction.editReply({
+      content: `❌ Du hast bereits ${activeUserTickets.length}/${maxPerUser} offenes Ticket(s) in dieser Kategorie.${existCh ? ` → ${existCh}` : ''}`,
+    });
   }
 
   // Increment counter
@@ -372,7 +469,14 @@ async function handleCreateTicket(interaction, categoryId) {
     .setTimestamp()
     .setFooter({ text: `Ticket #${counter} • ${cat.name}` });
 
-  await channel.send({ embeds: [embed], components: buildTicketButtons(guildCfg) });
+  await channel.send({ embeds: [embed], components: buildTicketButtons(cat, guildCfg) });
+
+  // Mention support roles if configured
+  if (cat.mentionSupportRoles && cat.supportRoles?.length) {
+    const mentions = cat.supportRoles.map(id => `<@&${id}>`).join(' ');
+    await channel.send({ content: `${mentions} — Neues Ticket von <@${interaction.user.id}>` });
+  }
+
   await interaction.editReply({ content: `✅ Dein Ticket wurde erstellt: ${channel}` });
 
   // Log
@@ -395,12 +499,30 @@ async function handleCreateTicket(interaction, categoryId) {
 // ── Close ticket ─────────────────────────────────────────────
 async function closeTicket(channel, ticket, reason) {
   const guildCfg = cfg.getGuild(ticket.guildId);
+  const cat = guildCfg.categories?.find(c => c.id === ticket.categoryId);
 
-  // Send transcript to log channel
-  if (guildCfg.logChannel) {
+  // Send transcript to log channel (unless disabled for this category)
+  const sendTranscriptEnabled = cat?.sendTranscript !== false;
+  if (guildCfg.logChannel && sendTranscriptEnabled) {
     try {
       const logCh = await client.channels.fetch(guildCfg.logChannel).catch(() => null);
       if (logCh) await sendTranscriptToLog(channel, ticket, reason, logCh);
+    } catch {}
+  }
+
+  // DM on close
+  if (cat?.dmOnClose?.trim()) {
+    try {
+      const closedUser = await client.users.fetch(ticket.userId).catch(() => null);
+      if (closedUser) {
+        const dmMsg = cat.dmOnClose
+          .replace(/{user}/g,     closedUser.tag)
+          .replace(/{server}/g,   channel.guild?.name || '')
+          .replace(/{ticket}/g,   channel.name)
+          .replace(/{category}/g, ticket.categoryName || '')
+          .replace(/{reason}/g,   reason);
+        closedUser.send(dmMsg).catch(() => {});
+      }
     } catch {}
   }
 
@@ -410,7 +532,9 @@ async function closeTicket(channel, ticket, reason) {
     autoCloseTimers.delete(channel.id);
   }
 
-  setTimeout(() => channel.delete().catch(() => {}), 5000);
+  // Per-category close delay (default 5s)
+  const closeDelaySec = cat?.closeDelay ?? 5;
+  setTimeout(() => channel.delete().catch(() => {}), closeDelaySec * 1000);
 }
 
 // ── Transcript ───────────────────────────────────────────────
@@ -500,15 +624,58 @@ function restartAutoCloseTimers() {
 }
 
 // ── Build ticket action buttons ───────────────────────────────
-function buildTicketButtons(guildCfg) {
-  const btns = guildCfg.buttons || {};
-  const row = new ActionRowBuilder();
-  if (btns.close    !== false) row.addComponents(new ButtonBuilder().setCustomId('ticket_close').setLabel('🔒 Schließen').setStyle(ButtonStyle.Danger));
-  if (btns.claim    !== false) row.addComponents(new ButtonBuilder().setCustomId('ticket_claim').setLabel('✋ Claimen').setStyle(ButtonStyle.Primary));
-  if (btns.priority !== false) row.addComponents(new ButtonBuilder().setCustomId('ticket_priority').setLabel('📊 Priorität').setStyle(ButtonStyle.Secondary));
-  if (btns.forward  !== false) row.addComponents(new ButtonBuilder().setCustomId('ticket_forward').setLabel('↗️ Weiterleiten').setStyle(ButtonStyle.Secondary));
-  if (btns.addUser  !== false) row.addComponents(new ButtonBuilder().setCustomId('ticket_add_user').setLabel('👤 Nutzer').setStyle(ButtonStyle.Secondary));
-  return row.components.length ? [row] : [];
+// Each button can be configured per-category with { enabled, label, emoji, style }
+// or a simple false (disabled), or absent (use global or default).
+const TICKET_BUTTON_DEFS = [
+  { key: 'close',      id: 'ticket_close',       defLabel: '🔒 Schließen',        defStyle: ButtonStyle.Danger,     defEnabled: true  },
+  { key: 'claim',      id: 'ticket_claim',        defLabel: '✋ Claimen',           defStyle: ButtonStyle.Primary,    defEnabled: true  },
+  { key: 'priority',   id: 'ticket_priority',     defLabel: '📊 Priorität',         defStyle: ButtonStyle.Secondary,  defEnabled: true  },
+  { key: 'forward',    id: 'ticket_forward',      defLabel: '↗️ Weiterleiten',      defStyle: ButtonStyle.Secondary,  defEnabled: true  },
+  { key: 'addUser',    id: 'ticket_add_user',     defLabel: '👤 Nutzer',            defStyle: ButtonStyle.Secondary,  defEnabled: true  },
+  { key: 'removeUser', id: 'ticket_remove_user',  defLabel: '🚫 Entfernen',         defStyle: ButtonStyle.Secondary,  defEnabled: false },
+  { key: 'lock',       id: 'ticket_lock',         defLabel: '🔇 Sperren',           defStyle: ButtonStyle.Secondary,  defEnabled: false },
+  { key: 'transcript', id: 'ticket_transcript',   defLabel: '📋 Transcript',        defStyle: ButtonStyle.Secondary,  defEnabled: false },
+  { key: 'rename',     id: 'ticket_rename',       defLabel: '✏️ Umbenennen',        defStyle: ButtonStyle.Secondary,  defEnabled: false },
+];
+
+const STYLE_MAP = [ButtonStyle.Primary, ButtonStyle.Secondary, ButtonStyle.Success, ButtonStyle.Danger];
+
+function buildTicketButtons(cat, guildCfg) {
+  const catBtns    = cat?.buttons || {};
+  const globalBtns = guildCfg.buttons || {};
+
+  const buttons = [];
+  for (const def of TICKET_BUTTON_DEFS) {
+    const catCfg    = catBtns[def.key];
+    const globalCfg = globalBtns[def.key];
+
+    // Determine if enabled
+    let enabled;
+    if (catCfg !== undefined && catCfg !== null) {
+      enabled = (typeof catCfg === 'object') ? catCfg.enabled !== false : catCfg !== false;
+    } else if (globalCfg !== undefined && globalCfg !== null) {
+      enabled = (typeof globalCfg === 'object') ? globalCfg.enabled !== false : globalCfg !== false;
+    } else {
+      enabled = def.defEnabled;
+    }
+    if (!enabled) continue;
+
+    // Merge config: cat overrides global overrides defaults
+    const merged = Object.assign({}, (typeof globalCfg === 'object' && globalCfg) || {}, (typeof catCfg === 'object' && catCfg) || {});
+    const label  = merged.label || def.defLabel;
+    const style  = STYLE_MAP[(merged.style || 0) - 1] || def.defStyle;
+
+    const btn = new ButtonBuilder().setCustomId(def.id).setLabel(label).setStyle(style);
+    if (merged.emoji) { try { btn.setEmoji(merged.emoji); } catch {} }
+    buttons.push(btn);
+  }
+
+  // Discord allows max 5 buttons per ActionRow
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 5) {
+    rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+  }
+  return rows;
 }
 
 // ── Post panel to channel ─────────────────────────────────────
