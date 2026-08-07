@@ -182,6 +182,21 @@ app.post('/api/guilds/:id/roles', requireAuth, async (req, res) => {
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
+app.patch('/api/guilds/:id/roles/:roleId', requireAuth, async (req, res) => {
+  try {
+    const body = {};
+    if (req.body.name        !== undefined) body.name        = req.body.name;
+    if (req.body.color       !== undefined) body.color       = req.body.color;
+    if (req.body.permissions !== undefined) body.permissions = req.body.permissions;
+    if (req.body.hoist       !== undefined) body.hoist       = req.body.hoist;
+    if (req.body.mentionable !== undefined) body.mentionable = req.body.mentionable;
+    res.json(await discordBot(`/guilds/${req.params.id}/roles/${req.params.roleId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }));
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
 app.delete('/api/guilds/:id/roles/:roleId', requireAuth, async (req, res) => {
   try { res.json(await discordBot(`/guilds/${req.params.id}/roles/${req.params.roleId}`, { method: 'DELETE' })); }
   catch (e) { res.status(e.status || 500).json({ error: e.message }); }
@@ -203,6 +218,18 @@ app.post('/api/guilds/:id/channels', requireAuth, async (req, res) => {
         parent_id: req.body.parent_id || null,
         topic:     req.body.topic     || null,
       }),
+    }));
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+app.patch('/api/guilds/:id/channels/:channelId', requireAuth, async (req, res) => {
+  try {
+    const body = {};
+    if (req.body.name  !== undefined) body.name  = req.body.name;
+    if (req.body.topic !== undefined) body.topic = req.body.topic;
+    res.json(await discordBot(`/channels/${req.params.channelId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
     }));
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
