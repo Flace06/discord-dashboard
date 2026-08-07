@@ -732,21 +732,94 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
         <h1>✉️ Nachricht schreiben</h1>
         <p>Sende eine Nachricht über den Bot in einen Kanal</p>
       </div>
-      <div class="pg-body">
-        <div class="settings-sec" style="max-width:620px">
+      <div class="pg-body" style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+
+        <!-- Left: form -->
+        <div class="settings-sec" style="flex:1;min-width:300px;max-width:560px">
           <div class="settings-sec-title">Kanal & Nachricht</div>
+
           <label style="font-size:12px;color:var(--txt3);margin-bottom:6px;display:block">Kanal auswählen</label>
           <select id="msg-channel-select" class="modal-input" style="margin-bottom:16px;cursor:pointer;width:100%">
             <option value="">– Kanal laden…</option>
           </select>
-          <label style="font-size:12px;color:var(--txt3);margin-bottom:6px;display:block">Nachricht</label>
-          <textarea id="msg-content" rows="5" placeholder="Schreib hier deine Nachricht…" style="width:100%;background:var(--input);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--txt);font-size:14px;font-family:inherit;outline:none;resize:vertical;transition:border-color .15s;margin-bottom:16px" onfocus="this.style.borderColor='var(--blurple)'" onblur="this.style.borderColor='var(--border)'"></textarea>
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-            <div id="msg-char-count" style="font-size:12px;color:var(--txt3)">0 / 2000 Zeichen</div>
+
+          <!-- Embed toggle -->
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--sidebar);border-radius:8px;margin-bottom:16px">
+            <div>
+              <div style="font-size:13px;font-weight:600">Als Embed senden</div>
+              <div style="font-size:12px;color:var(--txt3)">Schönere Nachricht mit Farbe, Titel und mehr</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="msg-embed-toggle" onchange="toggleEmbedMode()"><span class="toggle-slider"></span></label>
+          </div>
+
+          <!-- Plain text mode -->
+          <div id="msg-plain-section">
+            <label style="font-size:12px;color:var(--txt3);margin-bottom:6px;display:block">Nachricht</label>
+            <textarea id="msg-content" rows="5" placeholder="Schreib hier deine Nachricht…" style="width:100%;background:var(--input);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--txt);font-size:14px;font-family:inherit;outline:none;resize:vertical;transition:border-color .15s;margin-bottom:8px" onfocus="this.style.borderColor='var(--blurple)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+            <div id="msg-char-count" style="font-size:12px;color:var(--txt3);margin-bottom:14px">0 / 2000 Zeichen</div>
+          </div>
+
+          <!-- Embed mode fields -->
+          <div id="msg-embed-section" style="display:none">
+            <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Zusätzlicher Text <span style="font-weight:400">(über dem Embed, optional)</span></label>
+            <input id="msg-embed-pretext" class="modal-input" placeholder="z.B. @everyone schaut mal hier:" style="margin-bottom:12px">
+
+            <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Titel <span style="font-weight:400">(optional)</span></label>
+            <input id="msg-embed-title" class="modal-input" placeholder="Embed-Titel" style="margin-bottom:12px" oninput="updateEmbedPreview()">
+
+            <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Beschreibung *</label>
+            <textarea id="msg-embed-desc" rows="4" class="modal-input" placeholder="Hauptinhalt des Embeds…" style="resize:vertical;margin-bottom:12px" oninput="updateEmbedPreview()"></textarea>
+
+            <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Autor <span style="font-weight:400">(optional)</span></label>
+            <input id="msg-embed-author" class="modal-input" placeholder="z.B. Serverteam" style="margin-bottom:12px" oninput="updateEmbedPreview()">
+
+            <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Footer <span style="font-weight:400">(optional)</span></label>
+            <input id="msg-embed-footer" class="modal-input" placeholder="z.B. Dein Server • Heute" style="margin-bottom:12px" oninput="updateEmbedPreview()">
+
+            <div style="display:flex;gap:12px;margin-bottom:12px">
+              <div style="flex:1">
+                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Thumbnail-URL <span style="font-weight:400">(optional)</span></label>
+                <input id="msg-embed-thumb" class="modal-input" placeholder="https://…" style="margin-bottom:0" oninput="updateEmbedPreview()">
+              </div>
+              <div>
+                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Farbe</label>
+                <input type="color" id="msg-embed-color" value="#5865f2" style="width:48px;height:38px;border:none;border-radius:6px;cursor:pointer;padding:2px;background:var(--input)" oninput="updateEmbedPreview()">
+              </div>
+            </div>
+
+            <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Bild-URL <span style="font-weight:400">(großes Bild unten, optional)</span></label>
+            <input id="msg-embed-image" class="modal-input" placeholder="https://…" style="margin-bottom:14px" oninput="updateEmbedPreview()">
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:flex-end">
             <button class="btn btn-primary" id="msg-send-btn" onclick="sendMessage()">✉️ Senden</button>
           </div>
         </div>
-        <div id="msg-history" style="max-width:620px;margin-top:14px"></div>
+
+        <!-- Right: embed preview -->
+        <div id="msg-preview-col" style="display:none;flex:0 0 360px">
+          <div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Vorschau</div>
+          <div style="background:#313338;border-radius:10px;padding:14px;min-height:80px">
+            <div id="msg-embed-pretext-preview" style="font-size:14px;color:#f2f3f5;margin-bottom:8px;display:none"></div>
+            <div id="msg-embed-preview" style="background:#2b2d31;border-radius:4px;overflow:hidden">
+              <div style="display:flex">
+                <div id="ep-colorbar" style="width:4px;background:#5865f2;flex-shrink:0;border-radius:4px 0 0 4px"></div>
+                <div style="padding:12px 14px;flex:1;min-width:0">
+                  <div id="ep-author" style="font-size:12px;color:#b5bac1;margin-bottom:4px;display:none"></div>
+                  <div id="ep-title" style="font-size:15px;font-weight:700;color:#f2f3f5;margin-bottom:6px;display:none"></div>
+                  <div id="ep-desc" style="font-size:14px;color:#dbdee1;white-space:pre-wrap;word-break:break-word;display:none"></div>
+                  <div id="ep-thumb-wrap" style="position:relative">
+                    <img id="ep-thumb" style="position:absolute;right:0;top:-60px;width:70px;height:70px;border-radius:4px;object-fit:cover;display:none">
+                  </div>
+                  <img id="ep-image" style="width:100%;border-radius:4px;margin-top:10px;display:none">
+                  <div id="ep-footer" style="font-size:12px;color:#b5bac1;margin-top:10px;display:none"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="msg-history" style="flex:1 1 100%;margin-top:4px"></div>
       </div>
     </div>
 
@@ -1938,11 +2011,13 @@ async function loadMessagesPage() {
   // Character counter
   const ta = document.getElementById('msg-content');
   const counter = document.getElementById('msg-char-count');
-  ta.oninput = () => {
-    const len = ta.value.length;
-    counter.textContent = `${len} / 2000 Zeichen`;
-    counter.style.color = len > 1900 ? 'var(--red)' : 'var(--txt3)';
-  };
+  if (ta && counter) {
+    ta.oninput = () => {
+      const len = ta.value.length;
+      counter.textContent = `${len} / 2000 Zeichen`;
+      counter.style.color = len > 1900 ? 'var(--red)' : 'var(--txt3)';
+    };
+  }
 
   renderMsgHistory();
 }
@@ -1988,31 +2063,134 @@ function populateMsgChannelSelect() {
   });
 }
 
-async function sendMessage() {
-  const sel = document.getElementById('msg-channel-select');
-  const ta  = document.getElementById('msg-content');
-  const channelId = sel?.value;
-  const content   = ta?.value?.trim();
+function toggleEmbedMode() {
+  const on = document.getElementById('msg-embed-toggle')?.checked;
+  document.getElementById('msg-plain-section').style.display  = on ? 'none' : '';
+  document.getElementById('msg-embed-section').style.display  = on ? ''     : 'none';
+  document.getElementById('msg-preview-col').style.display    = on ? ''     : 'none';
+  if (on) updateEmbedPreview();
+}
 
-  if (!channelId) { toast('Bitte zuerst einen Kanal auswählen.', 'err'); sel.style.borderColor = 'var(--red)'; setTimeout(() => sel.style.borderColor = '', 1500); return; }
-  if (!content)   { toast('Bitte eine Nachricht eingeben.', 'err'); ta.style.borderColor = 'var(--red)'; setTimeout(() => ta.style.borderColor = '', 1500); return; }
-  if (content.length > 2000) { toast('Nachricht ist zu lang (max. 2000 Zeichen).', 'err'); return; }
+function updateEmbedPreview() {
+  const val = id => document.getElementById(id)?.value?.trim() || '';
+  const show = (id, content) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (content) { el.style.display = ''; el.textContent = content; }
+    else          el.style.display = 'none';
+  };
+
+  // Pretext above embed
+  const pretext = val('msg-embed-pretext');
+  const ptEl = document.getElementById('msg-embed-pretext-preview');
+  if (ptEl) { if (pretext) { ptEl.style.display = ''; ptEl.textContent = pretext; } else ptEl.style.display = 'none'; }
+
+  // Color bar
+  const color = val('msg-embed-color') || '#5865f2';
+  const bar = document.getElementById('ep-colorbar');
+  if (bar) bar.style.background = color;
+
+  show('ep-author', val('msg-embed-author'));
+  show('ep-title',  val('msg-embed-title'));
+  // Description preserves newlines via white-space:pre-wrap
+  const descEl = document.getElementById('ep-desc');
+  const desc = document.getElementById('msg-embed-desc')?.value || '';
+  if (descEl) { if (desc.trim()) { descEl.style.display = ''; descEl.textContent = desc; } else descEl.style.display = 'none'; }
+
+  // Thumbnail
+  const thumbUrl = val('msg-embed-thumb');
+  const thumbEl = document.getElementById('ep-thumb');
+  if (thumbEl) { if (thumbUrl) { thumbEl.src = thumbUrl; thumbEl.style.display = ''; } else thumbEl.style.display = 'none'; }
+
+  // Image
+  const imgUrl = val('msg-embed-image');
+  const imgEl = document.getElementById('ep-image');
+  if (imgEl) { if (imgUrl) { imgEl.src = imgUrl; imgEl.style.display = ''; } else imgEl.style.display = 'none'; }
+
+  // Footer with timestamp
+  const footer = val('msg-embed-footer');
+  const footerEl = document.getElementById('ep-footer');
+  if (footerEl) {
+    const now = new Date().toLocaleString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    const footerText = footer ? `${footer} • ${now}` : `Heute um ${now.split(', ')[1]}`;
+    footerEl.style.display = '';
+    footerEl.textContent = footerText;
+  }
+}
+
+async function sendMessage() {
+  const sel       = document.getElementById('msg-channel-select');
+  const channelId = sel?.value;
+  const embedMode = document.getElementById('msg-embed-toggle')?.checked;
+
+  if (!channelId) {
+    toast('Bitte zuerst einen Kanal auswählen.', 'err');
+    sel.style.borderColor = 'var(--red)'; setTimeout(() => sel.style.borderColor = '', 1500);
+    return;
+  }
 
   const btn = document.getElementById('msg-send-btn');
   btn.disabled = true;
   btn.textContent = '⏳ Senden…';
 
   try {
+    let payload, historyLabel;
+
+    if (embedMode) {
+      const title = document.getElementById('msg-embed-title')?.value?.trim() || '';
+      const desc  = document.getElementById('msg-embed-desc')?.value?.trim()  || '';
+      if (!title && !desc) {
+        toast('Embed braucht mindestens einen Titel oder eine Beschreibung.', 'err');
+        btn.disabled = false; btn.textContent = '✉️ Senden';
+        return;
+      }
+      const colorHex = document.getElementById('msg-embed-color')?.value?.replace('#', '') || '5865f2';
+      payload = {
+        embedMode:       true,
+        content:         document.getElementById('msg-embed-pretext')?.value?.trim() || '',
+        embedTitle:      title,
+        embedDescription:desc,
+        embedColor:      parseInt(colorHex, 16),
+        embedAuthor:     document.getElementById('msg-embed-author')?.value?.trim() || '',
+        embedFooter:     document.getElementById('msg-embed-footer')?.value?.trim() || '',
+        embedThumbnail:  document.getElementById('msg-embed-thumb')?.value?.trim()  || '',
+        embedImage:      document.getElementById('msg-embed-image')?.value?.trim()   || '',
+      };
+      historyLabel = `[Embed] ${title || desc.slice(0, 60)}`;
+    } else {
+      const ta      = document.getElementById('msg-content');
+      const content = ta?.value?.trim();
+      if (!content) {
+        toast('Bitte eine Nachricht eingeben.', 'err');
+        ta.style.borderColor = 'var(--red)'; setTimeout(() => ta.style.borderColor = '', 1500);
+        btn.disabled = false; btn.textContent = '✉️ Senden';
+        return;
+      }
+      if (content.length > 2000) { toast('Nachricht ist zu lang (max. 2000 Zeichen).', 'err'); btn.disabled = false; btn.textContent = '✉️ Senden'; return; }
+      payload = { content };
+      historyLabel = content;
+    }
+
     await api(`/api/guilds/${S.guild.id}/channels/${channelId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(payload),
     });
 
     const chName = (S.channels || []).find(c => c.id === channelId)?.name || channelId;
-    MSG_HISTORY.unshift({ channelName: chName, content, time: new Date() });
-    ta.value = '';
-    document.getElementById('msg-char-count').textContent = '0 / 2000 Zeichen';
+    MSG_HISTORY.unshift({ channelName: chName, content: historyLabel, time: new Date(), isEmbed: embedMode });
+
+    // Clear fields
+    if (embedMode) {
+      ['msg-embed-pretext','msg-embed-title','msg-embed-desc','msg-embed-author','msg-embed-footer','msg-embed-thumb','msg-embed-image']
+        .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      updateEmbedPreview();
+    } else {
+      const ta = document.getElementById('msg-content');
+      if (ta) ta.value = '';
+      const counter = document.getElementById('msg-char-count');
+      if (counter) counter.textContent = '0 / 2000 Zeichen';
+    }
     renderMsgHistory();
     toast(`Nachricht in #${chName} gesendet!`, 'ok');
   } catch (e) {
@@ -2034,6 +2212,7 @@ function renderMsgHistory() {
         <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
           <div style="display:flex;align-items:center;gap:8px;width:100%">
             <span style="font-size:12px;color:var(--blurple);font-weight:600">#${esc(m.channelName)}</span>
+            ${m.isEmbed ? '<span style="font-size:10px;background:var(--blurple);color:#fff;padding:1px 6px;border-radius:10px;font-weight:700">EMBED</span>' : ''}
             <span style="font-size:11px;color:var(--txt3);margin-left:auto">${m.time.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</span>
           </div>
           <div style="font-size:13px;color:var(--txt2);white-space:pre-wrap;word-break:break-word">${esc(m.content)}</div>

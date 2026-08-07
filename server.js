@@ -929,13 +929,37 @@ app.get('/api/guilds/:id/audit-logs', requireAuth, async (req, res) => {
 //  MESSAGES
 // ════════════════════════════════════════════════════════════
 app.post('/api/guilds/:id/channels/:channelId/messages', requireAuth, async (req, res) => {
-  const { content } = req.body;
-  if (!content || !content.trim()) return res.status(400).json({ error: 'Nachrichteninhalt fehlt' });
-  try {
-    res.json(await discordBot(`/channels/${req.params.channelId}/messages`, {
-      method: 'POST', body: JSON.stringify({ content: content.trim() }),
-    }));
-  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  const { content, embedMode, embedTitle, embedDescription, embedColor, embedFooter, embedThumbnail, embedImage, embedAuthor } = req.body;
+
+  if (embedMode) {
+    // Build embed payload
+    if (!embedDescription?.trim() && !embedTitle?.trim()) {
+      return res.status(400).json({ error: 'Embed braucht mindestens einen Titel oder eine Beschreibung.' });
+    }
+    const embed = {};
+    if (embedTitle?.trim())       embed.title       = embedTitle.trim();
+    if (embedDescription?.trim()) embed.description = embedDescription.trim();
+    if (embedColor != null)       embed.color       = parseInt(embedColor) || 0x5865f2;
+    if (embedFooter?.trim())      embed.footer      = { text: embedFooter.trim() };
+    if (embedThumbnail?.trim())   embed.thumbnail   = { url: embedThumbnail.trim() };
+    if (embedImage?.trim())       embed.image       = { url: embedImage.trim() };
+    if (embedAuthor?.trim())      embed.author      = { name: embedAuthor.trim() };
+    embed.timestamp = new Date().toISOString();
+    const body = { embeds: [embed] };
+    if (content?.trim()) body.content = content.trim();
+    try {
+      res.json(await discordBot(`/channels/${req.params.channelId}/messages`, {
+        method: 'POST', body: JSON.stringify(body),
+      }));
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  } else {
+    if (!content || !content.trim()) return res.status(400).json({ error: 'Nachrichteninhalt fehlt' });
+    try {
+      res.json(await discordBot(`/channels/${req.params.channelId}/messages`, {
+        method: 'POST', body: JSON.stringify({ content: content.trim() }),
+      }));
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }
 });
 
 // ════════════════════════════════════════════════════════════
