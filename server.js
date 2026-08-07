@@ -92,6 +92,43 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
+// ── Autorole: assign roles when a member joins ───────────────
+client.on('guildMemberAdd', async member => {
+  try {
+    const guildCfg = cfg.getGuild(member.guild.id);
+    const autorole  = guildCfg.autorole;
+    if (!autorole?.enabled || !autorole?.rules?.length) return;
+
+    for (const rule of autorole.rules) {
+      if (!rule.roles?.length) continue;
+      const isBot = member.user.bot;
+      if (rule.target === 'bots'   && !isBot) continue;
+      if (rule.target === 'humans' &&  isBot) continue;
+
+      const assign = async () => {
+        for (const roleId of rule.roles) {
+          try {
+            const role = member.guild.roles.cache.get(roleId);
+            if (role) await member.roles.add(role);
+          } catch {}
+        }
+      };
+
+      if (rule.delay > 0) setTimeout(assign, rule.delay * 1000);
+      else await assign();
+    }
+
+    // Optional DM message
+    if (autorole.dmMessage?.trim()) {
+      const msg = autorole.dmMessage
+        .replace(/{user}/g,   member.user.tag)
+        .replace(/{server}/g, member.guild.name)
+        .replace(/{mention}/g, `<@${member.user.id}>`);
+      member.user.send(msg).catch(() => {});
+    }
+  } catch (e) { console.error('Autorole error:', e.message); }
+});
+
 // Track message activity for auto-close
 client.on('messageCreate', async msg => {
   if (msg.author.bot || !msg.guild) return;
@@ -772,6 +809,28 @@ app.post('/api/guilds/:id/panel', requireAuth, async (req, res) => {
     await postPanel(channel, cat);
     res.json({ success: true });
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+// ════════════════════════════════════════════════════════════
+//  AUTOROLE API ROUTES
+// ════════════════════════════════════════════════════════════
+
+// GET autorole config
+app.get('/api/guilds/:id/autorole-config', requireAuth, (req, res) => {
+  try {
+    const guildCfg = cfg.getGuild(req.params.id);
+    res.json(guildCfg.autorole || { enabled: false, dmMessage: '', rules: [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT autorole config
+app.put('/api/guilds/:id/autorole-config', requireAuth, (req, res) => {
+  try {
+    const guildCfg = cfg.getGuild(req.params.id);
+    guildCfg.autorole = req.body;
+    cfg.saveGuild(req.params.id, guildCfg);
+    res.json(guildCfg.autorole);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // DELETE / force-close a ticket

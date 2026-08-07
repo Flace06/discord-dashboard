@@ -596,6 +596,9 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
 
       <div class="nav-label">Ticket-System</div>
       <div class="nav-item" data-page="tickets"><span class="ni">🎫</span> Tickets</div>
+
+      <div class="nav-label">Automatisierung</div>
+      <div class="nav-item" data-page="autorole"><span class="ni">🤖</span> Autorole</div>
     </nav>
 
     <div class="sidebar-user">
@@ -747,6 +750,46 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
       </div>
     </div>
 
+    <!-- AUTOROLE -->
+    <div id="page-autorole" class="hidden">
+      <div class="pg-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <h1>🤖 Autorole</h1>
+          <p>Weise neuen Mitgliedern automatisch Rollen zu</p>
+        </div>
+        <button class="btn btn-primary" onclick="openRuleEditor(null)">+ Regel hinzufügen</button>
+      </div>
+      <div class="pg-body">
+
+        <!-- Global settings card -->
+        <div class="tk-sec" style="margin-bottom:20px">
+          <div class="tk-sec-title">Globale Einstellungen</div>
+          <div class="tk-row">
+            <div>
+              <div class="tk-lbl">Autorole aktiviert</div>
+              <div class="tk-sub">Rollen werden beim Beitreten vergeben</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="ar-enabled"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="tk-row">
+            <div style="flex:1;margin-right:16px">
+              <div class="tk-lbl">Willkommens-DM</div>
+              <div class="tk-sub">Automatische DM an neue Mitglieder. Platzhalter: {user}, {server}, {mention}</div>
+            </div>
+            <input class="input-sm" id="ar-dm" placeholder="Leer lassen für keine DM" style="width:300px">
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:12px">
+            <button class="btn btn-primary btn-sm" onclick="saveArGlobal()">💾 Speichern</button>
+          </div>
+        </div>
+
+        <!-- Rules list -->
+        <div style="margin-bottom:12px;font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em">Regeln</div>
+        <div id="ar-rules-list"><div class="loading"><div class="spin"></div> Laden…</div></div>
+
+      </div>
+    </div>
+
     <!-- TICKETS -->
     <div id="page-tickets" class="hidden">
       <div class="pg-header">
@@ -825,6 +868,8 @@ const S = {
   // Ticket-System
   ticketConfig: null,
   tickets: null,
+  // Autorole
+  autoroleConfig: null,
 };
 
 /* ──────────────────────────────────────────────
@@ -949,6 +994,7 @@ document.getElementById('back-to-servers').addEventListener('click', () => {
   S.guild = null; S.guildFull = null; S.bans = null;
   S.members = null; S.roles = null; S.channels = null; S.audit = null;
   S.ticketConfig = null; S.tickets = null;
+  S.autoroleConfig = null;
   MSG_HISTORY.length = 0;
 });
 
@@ -1049,6 +1095,7 @@ async function loadPage(page) {
   else if (page === 'settings')  loadSettings();
   else if (page === 'messages')  loadMessagesPage();
   else if (page === 'tickets')   loadTicketsPage();
+  else if (page === 'autorole')  loadAutorolePage();
 }
 
 /* ─── OVERVIEW ─────────────────────────────── */
@@ -1997,6 +2044,201 @@ function renderMsgHistory() {
 /* ─── ERROR HTML ────────────────────────────── */
 function errHtml(msg) {
   return `<div class="empty"><div class="eic">⚠️</div><h3>Fehler</h3><p>${esc(msg)}</p></div>`;
+}
+
+/* ══════════════════════════════════════════════
+   AUTOROLE SYSTEM
+══════════════════════════════════════════════ */
+
+async function loadAutorolePage() {
+  // Load roles if needed
+  if (!S.roles) {
+    try { S.roles = await api(`/api/guilds/${S.guild.id}/roles`); } catch {}
+  }
+  // Load autorole config
+  try {
+    S.autoroleConfig = await api(`/api/guilds/${S.guild.id}/autorole-config`);
+  } catch {
+    S.autoroleConfig = { enabled: false, dmMessage: '', rules: [] };
+  }
+  renderAutorolePage();
+}
+
+function renderAutorolePage() {
+  const ar = S.autoroleConfig || { enabled: false, dmMessage: '', rules: [] };
+
+  // Apply global fields
+  const enableEl = document.getElementById('ar-enabled');
+  const dmEl     = document.getElementById('ar-dm');
+  if (enableEl) enableEl.checked  = !!ar.enabled;
+  if (dmEl)     dmEl.value        = ar.dmMessage || '';
+
+  // Render rules
+  renderArRules();
+}
+
+function renderArRules() {
+  const el    = document.getElementById('ar-rules-list');
+  const rules = S.autoroleConfig?.rules || [];
+  const roleMap = Object.fromEntries((S.roles || []).map(r => [r.id, r]));
+
+  if (!rules.length) {
+    el.innerHTML = `
+      <div class="empty">
+        <div class="eic">🤖</div>
+        <h3>Keine Regeln</h3>
+        <p>Füge eine Regel hinzu, um automatisch Rollen zu vergeben.</p>
+      </div>`;
+    return;
+  }
+
+  const targetLabel = { all: '👥 Alle', humans: '🧑 Nur Menschen', bots: '🤖 Nur Bots' };
+
+  el.innerHTML = rules.map((rule, i) => {
+    const roleChips = (rule.roles || [])
+      .map(rid => roleMap[rid])
+      .filter(Boolean)
+      .map(r => {
+        const c = intToHex(r.color);
+        return `<span class="role-chip" style="background:${c}22;color:${c}"><span class="role-dot" style="background:${c}"></span>${esc(r.name)}</span>`;
+      }).join('');
+    const delay = rule.delay > 0
+      ? `<span class="badge bdg-yellow">⏱ ${rule.delay}s Verzögerung</span>`
+      : '';
+    return `
+      <div class="cat-card" style="margin-bottom:10px">
+        <div class="cat-emoji">📋</div>
+        <div class="cat-info" style="flex:1;min-width:0">
+          <div class="cat-name">${esc(rule.name || 'Regel ' + (i + 1))}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;align-items:center">
+            <span class="badge bdg-blue">${targetLabel[rule.target] || '👥 Alle'}</span>
+            ${delay}
+            ${roleChips || '<span style="color:var(--txt3);font-size:11px">Keine Rollen</span>'}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-ghost btn-sm" onclick="openRuleEditor(${i})">✏️ Bearbeiten</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteArRule(${i})">🗑</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openRuleEditor(idx) {
+  const rules    = S.autoroleConfig?.rules || [];
+  const existing = idx !== null ? rules[idx] : null;
+  const rule = existing || {
+    id: 'rule_' + Date.now(),
+    name: '',
+    target: 'all',
+    roles: [],
+    delay: 0,
+  };
+
+  const allRoles = (S.roles || []).filter(r => r.name !== '@everyone' && !r.managed);
+  const roleOpts = allRoles.map(r => {
+    const sel = (rule.roles || []).includes(r.id) ? 'selected' : '';
+    const col = intToHex(r.color);
+    return `<option value="${esc(r.id)}" ${sel}>${esc(r.name)}</option>`;
+  }).join('');
+
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal-lg" style="max-width:520px">
+      <div class="modal-lg-head">
+        <h3 style="font-size:18px;font-weight:700;margin-bottom:4px">${idx !== null ? '✏️ Regel bearbeiten' : '➕ Neue Regel'}</h3>
+        <p style="color:var(--txt2);font-size:13px">Konfiguriere wann und welche Rollen vergeben werden</p>
+      </div>
+      <div class="modal-lg-body">
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Name der Regel</label>
+        <input class="modal-input" id="ar-rule-name" value="${esc(rule.name || '')}" placeholder="z.B. Neues Mitglied" style="margin-bottom:14px">
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Gilt für</label>
+        <div style="display:flex;gap:8px;margin-bottom:16px">
+          ${[
+            ['all',    '👥 Alle Mitglieder', 'Sowohl Menschen als auch Bots'],
+            ['humans', '🧑 Nur Menschen',    'Keine Bots'],
+            ['bots',   '🤖 Nur Bots',        'Nur Bot-Accounts'],
+          ].map(([val, label, sub]) => `
+            <label style="flex:1;background:var(--input);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;display:block;transition:border-color .15s" id="ar-target-lbl-${val}">
+              <input type="radio" name="ar-target" value="${val}" ${rule.target === val ? 'checked' : ''} style="display:none" onchange="document.querySelectorAll('[id^=ar-target-lbl]').forEach(l=>l.style.borderColor='var(--border)');this.parentElement.style.borderColor='var(--blurple)'">
+              <div style="font-weight:600;font-size:13px">${label}</div>
+              <div style="font-size:11px;color:var(--txt3);margin-top:2px">${sub}</div>
+            </label>`).join('')}
+        </div>
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Rollen vergeben <span style="color:var(--txt3);font-weight:400">(Strg/Cmd für Mehrfachauswahl)</span></label>
+        <select class="modal-input" id="ar-rule-roles" multiple style="margin-bottom:14px;height:120px">${roleOpts}</select>
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Verzögerung in Sekunden <span style="color:var(--txt3);font-weight:400">(0 = sofort)</span></label>
+        <input type="number" class="modal-input" id="ar-rule-delay" value="${rule.delay || 0}" min="0" max="3600" style="margin-bottom:0">
+        <div style="font-size:11px;color:var(--txt3);margin-top:4px">Tipp: 300 = 5 Minuten, 3600 = 1 Stunde</div>
+
+      </div>
+      <div class="modal-lg-foot">
+        <button class="btn btn-ghost" id="ar-cancel">Abbrechen</button>
+        <button class="btn btn-primary" id="ar-ok">💾 Speichern</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+
+  // Highlight selected target on open
+  const checkedTarget = bg.querySelector('input[name=ar-target]:checked');
+  if (checkedTarget) checkedTarget.parentElement.style.borderColor = 'var(--blurple)';
+
+  bg.querySelector('#ar-rule-name').focus();
+  bg.querySelector('#ar-cancel').onclick = () => bg.remove();
+  bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+
+  bg.querySelector('#ar-ok').onclick = async () => {
+    const name = bg.querySelector('#ar-rule-name').value.trim();
+    const target = bg.querySelector('input[name=ar-target]:checked')?.value || 'all';
+    const roleSelect = bg.querySelector('#ar-rule-roles');
+    const roles = [...roleSelect.selectedOptions].map(o => o.value);
+    const delay = parseInt(bg.querySelector('#ar-rule-delay').value || 0);
+
+    if (!name) { bg.querySelector('#ar-rule-name').style.borderColor = 'var(--red)'; return; }
+    bg.remove();
+
+    const updated = { ...rule, name, target, roles, delay };
+    if (!S.autoroleConfig) S.autoroleConfig = { enabled: false, dmMessage: '', rules: [] };
+    if (!S.autoroleConfig.rules) S.autoroleConfig.rules = [];
+    if (idx !== null) S.autoroleConfig.rules[idx] = updated;
+    else              S.autoroleConfig.rules.push(updated);
+
+    await saveArConfig();
+    renderArRules();
+  };
+}
+
+async function deleteArRule(idx) {
+  const rules = S.autoroleConfig?.rules || [];
+  const name  = rules[idx]?.name || 'diese Regel';
+  const ok = await modal({ title: 'Regel löschen?', desc: `<strong>${esc(name)}</strong> wird gelöscht.`, danger: true, confirmLabel: 'Löschen' });
+  if (!ok) return;
+  S.autoroleConfig.rules.splice(idx, 1);
+  await saveArConfig();
+  renderArRules();
+}
+
+async function saveArGlobal() {
+  if (!S.autoroleConfig) S.autoroleConfig = { enabled: false, dmMessage: '', rules: [] };
+  S.autoroleConfig.enabled   = document.getElementById('ar-enabled')?.checked || false;
+  S.autoroleConfig.dmMessage = document.getElementById('ar-dm')?.value.trim() || '';
+  await saveArConfig();
+}
+
+async function saveArConfig() {
+  try {
+    await api(`/api/guilds/${S.guild.id}/autorole-config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(S.autoroleConfig),
+    });
+    toast('Autorole gespeichert!', 'ok');
+  } catch (e) { toast('Fehler: ' + e.message, 'err'); }
 }
 
 /* ══════════════════════════════════════════════
