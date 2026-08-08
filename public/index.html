@@ -599,6 +599,8 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
 
       <div class="nav-label">Automatisierung</div>
       <div class="nav-item" data-page="autorole"><span class="ni">🤖</span> Autorole</div>
+      <div class="nav-label">Logging</div>
+      <div class="nav-item" data-page="serverlog"><span class="ni">📋</span> Server-Log</div>
     </nav>
 
     <div class="sidebar-user">
@@ -863,6 +865,32 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
       </div>
     </div>
 
+    <!-- SERVER LOG -->
+    <div id="page-serverlog" class="hidden">
+      <div class="pg-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <h1>📋 Server-Log</h1>
+          <p>Protokolliere Server-Ereignisse in separate Kanäle</p>
+        </div>
+        <button class="btn btn-primary" onclick="saveServerLogConfig()">💾 Speichern</button>
+      </div>
+      <div class="pg-body">
+        <div class="tk-sec" style="margin-bottom:20px;max-width:780px">
+          <div class="tk-sec-title">Globale Einstellung</div>
+          <div class="tk-row">
+            <div>
+              <div class="tk-lbl">Server-Log aktiviert</div>
+              <div class="tk-sub">Alle aktivierten Kategorien werden in die jeweiligen Kanäle geloggt</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="sl-enabled"><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+        <div id="sl-categories" style="max-width:780px">
+          <div class="loading"><div class="spin"></div> Laden…</div>
+        </div>
+      </div>
+    </div>
+
     <!-- TICKETS -->
     <div id="page-tickets" class="hidden">
       <div class="pg-header">
@@ -943,6 +971,7 @@ const S = {
   tickets: null,
   // Autorole
   autoroleConfig: null,
+  serverLogConfig: null,
 };
 
 /* ──────────────────────────────────────────────
@@ -1067,7 +1096,8 @@ document.getElementById('back-to-servers').addEventListener('click', () => {
   S.guild = null; S.guildFull = null; S.bans = null;
   S.members = null; S.roles = null; S.channels = null; S.audit = null;
   S.ticketConfig = null; S.tickets = null;
-  S.autoroleConfig = null;
+  S.autoroleConfig   = null;
+  S.serverLogConfig  = null;
   MSG_HISTORY.length = 0;
 });
 
@@ -1168,7 +1198,8 @@ async function loadPage(page) {
   else if (page === 'settings')  loadSettings();
   else if (page === 'messages')  loadMessagesPage();
   else if (page === 'tickets')   loadTicketsPage();
-  else if (page === 'autorole')  loadAutorolePage();
+  else if (page === 'autorole')   loadAutorolePage();
+  else if (page === 'serverlog')  loadServerLogPage();
 }
 
 /* ─── OVERVIEW ─────────────────────────────── */
@@ -2218,6 +2249,88 @@ function renderMsgHistory() {
           <div style="font-size:13px;color:var(--txt2);white-space:pre-wrap;word-break:break-word">${esc(m.content)}</div>
         </div>`).join('')}
     </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   SERVER LOG
+══════════════════════════════════════════════ */
+const SL_CATEGORIES = [
+  { key: 'messages',   icon: '💬', name: 'Nachrichten',  desc: 'Gelöschte & bearbeitete Nachrichten, Massen-Löschungen' },
+  { key: 'members',    icon: '👥', name: 'Mitglieder',   desc: 'Beitritte, Abgänge, Nickname- & Rollen-Änderungen' },
+  { key: 'voice',      icon: '🔊', name: 'Voice',        desc: 'Voice-Channel beigetreten / verlassen / gewechselt' },
+  { key: 'roles',      icon: '🏷️', name: 'Rollen',       desc: 'Rollen erstellt, gelöscht oder bearbeitet' },
+  { key: 'channels',   icon: '📁', name: 'Kanäle',       desc: 'Kanäle erstellt, gelöscht oder umbenannt' },
+  { key: 'moderation', icon: '🔨', name: 'Moderation',   desc: 'Bans vergeben und aufgehoben' },
+  { key: 'server',     icon: '⚙️', name: 'Server',       desc: 'Server-Name, Icon oder Verifikationsstufe geändert' },
+];
+
+async function loadServerLogPage() {
+  if (!S.channels) {
+    try { S.channels = await api(`/api/guilds/${S.guild.id}/channels`); }
+    catch { S.channels = []; }
+  }
+  if (!S.serverLogConfig) {
+    try { S.serverLogConfig = await api(`/api/guilds/${S.guild.id}/serverlog-config`); }
+    catch { S.serverLogConfig = { enabled: false, channels: {} }; }
+  }
+  renderServerLogPage();
+}
+
+function renderServerLogPage() {
+  const cfg  = S.serverLogConfig || { enabled: false, channels: {} };
+  const chs  = cfg.channels || {};
+
+  // Set global toggle
+  const tog = document.getElementById('sl-enabled');
+  if (tog) tog.checked = !!cfg.enabled;
+
+  // Build text channels dropdown options helper
+  const textChannels = (S.channels || [])
+    .filter(c => c.type === 0 || c.type === 5)
+    .sort((a, b) => (a.position || 0) - (b.position || 0));
+
+  const catContainer = document.getElementById('sl-categories');
+  if (!catContainer) return;
+
+  catContainer.innerHTML = SL_CATEGORIES.map(cat => {
+    const selVal = chs[cat.key] || '';
+    const opts = `<option value="">– Kein Kanal (deaktiviert) –</option>` +
+      textChannels.map(c => `<option value="${esc(c.id)}" ${selVal === c.id ? 'selected' : ''}># ${esc(c.name)}</option>`).join('');
+    return `
+      <div class="tk-sec" style="margin-bottom:16px">
+        <div class="tk-row" style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="font-size:22px">${cat.icon}</span>
+            <div>
+              <div class="tk-lbl">${cat.name}</div>
+              <div class="tk-sub">${cat.desc}</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:12px;color:var(--txt3)">Log-Kanal:</span>
+            <select class="select-sm sl-channel-sel" data-cat="${cat.key}" style="width:200px">${opts}</select>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function saveServerLogConfig() {
+  const enabled = document.getElementById('sl-enabled')?.checked || false;
+  const channels = {};
+  document.querySelectorAll('.sl-channel-sel').forEach(sel => {
+    channels[sel.dataset.cat] = sel.value || null;
+  });
+  try {
+    S.serverLogConfig = await api(`/api/guilds/${S.guild.id}/serverlog-config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, channels }),
+    });
+    toast('Server-Log gespeichert!', 'ok');
+  } catch (e) {
+    toast('Fehler: ' + e.message, 'err');
+  }
 }
 
 /* ─── ERROR HTML ────────────────────────────── */

@@ -54,6 +54,8 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildModeration,
   ],
 });
 
@@ -129,6 +131,309 @@ client.on('guildMemberAdd', async member => {
     }
   } catch (e) { console.error('Autorole error:', e.message); }
 });
+
+// ════════════════════════════════════════════════════════════
+//  SERVER LOG SYSTEM
+// ════════════════════════════════════════════════════════════
+
+async function sendLog(guildId, category, embed) {
+  try {
+    const guildCfg = cfg.getGuild(guildId);
+    const logCfg   = guildCfg.serverLog;
+    if (!logCfg?.enabled) return;
+    const channelId = logCfg.channels?.[category];
+    if (!channelId) return;
+    const ch = await client.channels.fetch(channelId).catch(() => null);
+    if (ch) await ch.send({ embeds: [embed] });
+  } catch {}
+}
+
+// ── Messages ─────────────────────────────────────────────────
+client.on('messageDelete', async msg => {
+  if (!msg.guild || msg.author?.bot) return;
+  const embed = new EmbedBuilder()
+    .setTitle('🗑️ Nachricht gelöscht')
+    .setColor(0xed4245)
+    .addFields(
+      { name: 'Kanal',  value: `<#${msg.channel.id}>`, inline: true },
+      { name: 'Autor',  value: msg.author ? `<@${msg.author.id}> (${msg.author.tag})` : '*Unbekannt*', inline: true },
+      { name: 'Inhalt', value: msg.content ? msg.content.slice(0, 1024) || '*Leer*' : '*Nicht im Cache*' },
+    )
+    .setTimestamp();
+  await sendLog(msg.guild.id, 'messages', embed);
+});
+
+client.on('messageUpdate', async (oldMsg, newMsg) => {
+  if (!newMsg.guild || newMsg.author?.bot) return;
+  if (oldMsg.content === newMsg.content) return;
+  const embed = new EmbedBuilder()
+    .setTitle('✏️ Nachricht bearbeitet')
+    .setColor(0xfee75c)
+    .addFields(
+      { name: 'Kanal',   value: `<#${newMsg.channel.id}>`, inline: true },
+      { name: 'Autor',   value: `<@${newMsg.author.id}> (${newMsg.author.tag})`, inline: true },
+      { name: 'Vorher',  value: (oldMsg.content || '*Nicht im Cache*').slice(0, 512) },
+      { name: 'Nachher', value: (newMsg.content || '*Leer*').slice(0, 512) },
+    )
+    .setTimestamp();
+  await sendLog(newMsg.guild.id, 'messages', embed);
+});
+
+client.on('messageDeleteBulk', async (msgs, channel) => {
+  if (!channel.guild) return;
+  const embed = new EmbedBuilder()
+    .setTitle('🗑️ Massen-Löschung')
+    .setColor(0xed4245)
+    .addFields(
+      { name: 'Kanal',   value: `<#${channel.id}>`, inline: true },
+      { name: 'Anzahl',  value: `${msgs.size} Nachrichten`, inline: true },
+    )
+    .setTimestamp();
+  await sendLog(channel.guild.id, 'messages', embed);
+});
+
+// ── Members ───────────────────────────────────────────────────
+client.on('guildMemberAdd', async member => {
+  // Autorole is handled separately — here just log
+  const created = Math.floor(member.user.createdTimestamp / 1000);
+  const embed = new EmbedBuilder()
+    .setTitle('📥 Mitglied beigetreten')
+    .setColor(0x57f287)
+    .setThumbnail(member.user.displayAvatarURL())
+    .addFields(
+      { name: 'Nutzer',       value: `<@${member.id}> (${member.user.tag})`, inline: true },
+      { name: 'Mitglieder',   value: `${member.guild.memberCount}`, inline: true },
+      { name: 'Account seit', value: `<t:${created}:R>`, inline: true },
+    )
+    .setTimestamp();
+  await sendLog(member.guild.id, 'members', embed);
+});
+
+client.on('guildMemberRemove', async member => {
+  const roles = member.roles.cache
+    .filter(r => r.name !== '@everyone')
+    .map(r => `<@&${r.id}>`).join(', ') || '*Keine*';
+  const embed = new EmbedBuilder()
+    .setTitle('📤 Mitglied verlassen')
+    .setColor(0xed4245)
+    .setThumbnail(member.user.displayAvatarURL())
+    .addFields(
+      { name: 'Nutzer', value: `<@${member.id}> (${member.user.tag})`, inline: true },
+      { name: 'Rollen', value: roles.slice(0, 512) },
+    )
+    .setTimestamp();
+  await sendLog(member.guild.id, 'members', embed);
+});
+
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+  // Nickname change
+  if (oldMember.nickname !== newMember.nickname) {
+    const embed = new EmbedBuilder()
+      .setTitle('✏️ Nickname geändert')
+      .setColor(0xfee75c)
+      .addFields(
+        { name: 'Nutzer',   value: `<@${newMember.id}> (${newMember.user.tag})`, inline: true },
+        { name: 'Vorher',   value: oldMember.nickname || '*Kein Nickname*', inline: true },
+        { name: 'Nachher',  value: newMember.nickname || '*Kein Nickname*', inline: true },
+      )
+      .setTimestamp();
+    await sendLog(newMember.guild.id, 'members', embed);
+  }
+
+  // Role changes
+  const addedRoles   = newMember.roles.cache.filter(r => !oldMember.roles.cache.has(r.id) && r.name !== '@everyone');
+  const removedRoles = oldMember.roles.cache.filter(r => !newMember.roles.cache.has(r.id) && r.name !== '@everyone');
+  if (addedRoles.size || removedRoles.size) {
+    const embed = new EmbedBuilder()
+      .setTitle('🔄 Rollen geändert')
+      .setColor(0x5865f2)
+      .addFields({ name: 'Nutzer', value: `<@${newMember.id}> (${newMember.user.tag})`, inline: false });
+    if (addedRoles.size)   embed.addFields({ name: '✅ Hinzugefügt',  value: addedRoles.map(r=>`<@&${r.id}>`).join(', '), inline: true });
+    if (removedRoles.size) embed.addFields({ name: '❌ Entfernt',     value: removedRoles.map(r=>`<@&${r.id}>`).join(', '), inline: true });
+    embed.setTimestamp();
+    await sendLog(newMember.guild.id, 'members', embed);
+  }
+});
+
+// ── Voice ─────────────────────────────────────────────────────
+client.on('voiceStateUpdate', async (oldState, newState) => {
+  const member = newState.member || oldState.member;
+  if (!member || member.user.bot) return;
+  const guildId = newState.guild?.id || oldState.guild?.id;
+
+  let title, color, fields;
+
+  if (!oldState.channel && newState.channel) {
+    title  = '🔊 Voice beigetreten';
+    color  = 0x57f287;
+    fields = [
+      { name: 'Nutzer',  value: `<@${member.id}> (${member.user.tag})`, inline: true },
+      { name: 'Kanal',   value: `${newState.channel.name}`, inline: true },
+    ];
+  } else if (oldState.channel && !newState.channel) {
+    title  = '🔇 Voice verlassen';
+    color  = 0xed4245;
+    fields = [
+      { name: 'Nutzer',  value: `<@${member.id}> (${member.user.tag})`, inline: true },
+      { name: 'Kanal',   value: `${oldState.channel.name}`, inline: true },
+    ];
+  } else if (oldState.channel?.id !== newState.channel?.id) {
+    title  = '↔️ Voice gewechselt';
+    color  = 0xfee75c;
+    fields = [
+      { name: 'Nutzer',  value: `<@${member.id}> (${member.user.tag})`, inline: false },
+      { name: 'Vorher',  value: oldState.channel?.name || '?', inline: true },
+      { name: 'Nachher', value: newState.channel?.name || '?', inline: true },
+    ];
+  } else if (!oldState.serverMute && newState.serverMute) {
+    title = '🔇 Server-Mute';  color = 0xfee75c;
+    fields = [{ name: 'Nutzer', value: `<@${member.id}> (${member.user.tag})` }];
+  } else if (oldState.serverMute && !newState.serverMute) {
+    title = '🔊 Server-Mute aufgehoben'; color = 0x57f287;
+    fields = [{ name: 'Nutzer', value: `<@${member.id}> (${member.user.tag})` }];
+  } else {
+    return; // Ignore self-mute/deafen etc.
+  }
+
+  const embed = new EmbedBuilder().setTitle(title).setColor(color).addFields(fields).setTimestamp();
+  await sendLog(guildId, 'voice', embed);
+});
+
+// ── Roles ─────────────────────────────────────────────────────
+client.on('roleCreate', async role => {
+  const embed = new EmbedBuilder()
+    .setTitle('✅ Rolle erstellt')
+    .setColor(0x57f287)
+    .addFields(
+      { name: 'Name',  value: role.name, inline: true },
+      { name: 'ID',    value: role.id,   inline: true },
+      { name: 'Farbe', value: role.hexColor, inline: true },
+    )
+    .setTimestamp();
+  await sendLog(role.guild.id, 'roles', embed);
+});
+
+client.on('roleDelete', async role => {
+  const embed = new EmbedBuilder()
+    .setTitle('❌ Rolle gelöscht')
+    .setColor(0xed4245)
+    .addFields(
+      { name: 'Name', value: role.name, inline: true },
+      { name: 'ID',   value: role.id,   inline: true },
+    )
+    .setTimestamp();
+  await sendLog(role.guild.id, 'roles', embed);
+});
+
+client.on('roleUpdate', async (oldRole, newRole) => {
+  const changes = [];
+  if (oldRole.name     !== newRole.name)     changes.push(`**Name:** ${oldRole.name} → ${newRole.name}`);
+  if (oldRole.hexColor !== newRole.hexColor) changes.push(`**Farbe:** ${oldRole.hexColor} → ${newRole.hexColor}`);
+  if (oldRole.hoist    !== newRole.hoist)    changes.push(`**Getrennt anzeigen:** ${oldRole.hoist} → ${newRole.hoist}`);
+  if (!changes.length) return;
+  const embed = new EmbedBuilder()
+    .setTitle('✏️ Rolle bearbeitet')
+    .setColor(0xfee75c)
+    .addFields(
+      { name: 'Rolle',    value: `<@&${newRole.id}> (${newRole.name})`, inline: false },
+      { name: 'Änderungen', value: changes.join('\n') },
+    )
+    .setTimestamp();
+  await sendLog(newRole.guild.id, 'roles', embed);
+});
+
+// ── Channels ──────────────────────────────────────────────────
+const CH_TYPE_NAMES = { 0:'Text', 2:'Voice', 4:'Kategorie', 5:'Ankündigungen', 13:'Stage', 15:'Forum' };
+
+client.on('channelCreate', async channel => {
+  if (!channel.guild) return;
+  const embed = new EmbedBuilder()
+    .setTitle('✅ Kanal erstellt')
+    .setColor(0x57f287)
+    .addFields(
+      { name: 'Name', value: channel.name, inline: true },
+      { name: 'Typ',  value: CH_TYPE_NAMES[channel.type] || String(channel.type), inline: true },
+      { name: 'ID',   value: channel.id,  inline: true },
+    )
+    .setTimestamp();
+  await sendLog(channel.guild.id, 'channels', embed);
+});
+
+client.on('channelDelete', async channel => {
+  if (!channel.guild) return;
+  const embed = new EmbedBuilder()
+    .setTitle('❌ Kanal gelöscht')
+    .setColor(0xed4245)
+    .addFields(
+      { name: 'Name', value: channel.name, inline: true },
+      { name: 'Typ',  value: CH_TYPE_NAMES[channel.type] || String(channel.type), inline: true },
+      { name: 'ID',   value: channel.id,  inline: true },
+    )
+    .setTimestamp();
+  await sendLog(channel.guild.id, 'channels', embed);
+});
+
+client.on('channelUpdate', async (oldCh, newCh) => {
+  if (!newCh.guild) return;
+  const changes = [];
+  if (oldCh.name  !== newCh.name)  changes.push(`**Name:** ${oldCh.name} → ${newCh.name}`);
+  if (oldCh.topic !== newCh.topic) changes.push(`**Thema:** ${oldCh.topic || '*Leer*'} → ${newCh.topic || '*Leer*'}`);
+  if (!changes.length) return;
+  const embed = new EmbedBuilder()
+    .setTitle('✏️ Kanal bearbeitet')
+    .setColor(0xfee75c)
+    .addFields(
+      { name: 'Kanal',     value: `<#${newCh.id}> (${newCh.name})` },
+      { name: 'Änderungen', value: changes.join('\n') },
+    )
+    .setTimestamp();
+  await sendLog(newCh.guild.id, 'channels', embed);
+});
+
+// ── Moderation ────────────────────────────────────────────────
+client.on('guildBanAdd', async ban => {
+  const embed = new EmbedBuilder()
+    .setTitle('🔨 Nutzer gebannt')
+    .setColor(0xed4245)
+    .setThumbnail(ban.user.displayAvatarURL())
+    .addFields(
+      { name: 'Nutzer', value: `<@${ban.user.id}> (${ban.user.tag})`, inline: true },
+      { name: 'Grund',  value: ban.reason || '*Kein Grund angegeben*', inline: true },
+    )
+    .setTimestamp();
+  await sendLog(ban.guild.id, 'moderation', embed);
+});
+
+client.on('guildBanRemove', async ban => {
+  const embed = new EmbedBuilder()
+    .setTitle('✅ Ban aufgehoben')
+    .setColor(0x57f287)
+    .setThumbnail(ban.user.displayAvatarURL())
+    .addFields({ name: 'Nutzer', value: `<@${ban.user.id}> (${ban.user.tag})`, inline: true })
+    .setTimestamp();
+  await sendLog(ban.guild.id, 'moderation', embed);
+});
+
+// ── Server ────────────────────────────────────────────────────
+client.on('guildUpdate', async (oldGuild, newGuild) => {
+  const changes = [];
+  if (oldGuild.name        !== newGuild.name)        changes.push(`**Name:** ${oldGuild.name} → ${newGuild.name}`);
+  if (oldGuild.icon        !== newGuild.icon)        changes.push(`**Icon** geändert`);
+  if (oldGuild.description !== newGuild.description) changes.push(`**Beschreibung** geändert`);
+  if (oldGuild.verificationLevel !== newGuild.verificationLevel)
+    changes.push(`**Verifikationsstufe:** ${oldGuild.verificationLevel} → ${newGuild.verificationLevel}`);
+  if (!changes.length) return;
+  const embed = new EmbedBuilder()
+    .setTitle('⚙️ Server aktualisiert')
+    .setColor(0x5865f2)
+    .addFields({ name: 'Änderungen', value: changes.join('\n') })
+    .setTimestamp();
+  await sendLog(newGuild.id, 'server', embed);
+});
+
+// ════════════════════════════════════════════════════════════
+//  END SERVER LOG
+// ════════════════════════════════════════════════════════════
 
 // Track message activity for auto-close
 client.on('messageCreate', async msg => {
@@ -1036,6 +1341,29 @@ app.delete('/api/guilds/:id/tickets/:channelId', requireAuth, async (req, res) =
       cfg.deleteTicket(req.params.channelId);
     }
     res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ════════════════════════════════════════════════════════════
+//  SERVER LOG API ROUTES
+// ════════════════════════════════════════════════════════════
+
+app.get('/api/guilds/:id/serverlog-config', requireAuth, (req, res) => {
+  try {
+    const guildCfg = cfg.getGuild(req.params.id);
+    res.json(guildCfg.serverLog || {
+      enabled: false,
+      channels: { messages: null, members: null, voice: null, roles: null, channels: null, moderation: null, server: null },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/guilds/:id/serverlog-config', requireAuth, (req, res) => {
+  try {
+    const guildCfg = cfg.getGuild(req.params.id);
+    guildCfg.serverLog = req.body;
+    cfg.saveGuild(req.params.id, guildCfg);
+    res.json(guildCfg.serverLog);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
