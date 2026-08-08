@@ -981,16 +981,18 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
                 <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Titel</label>
                 <input id="panel-title" class="modal-input" placeholder="z.B. 🎫 Support" oninput="updatePanelPreview()" style="margin-bottom:10px">
                 <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Beschreibung</label>
-                <textarea id="panel-desc" class="modal-input" rows="3" placeholder="Klicke einen Button um ein Ticket zu öffnen…" oninput="updatePanelPreview()" style="resize:vertical;margin-bottom:10px"></textarea>
+                <textarea id="panel-desc" class="modal-input" rows="6" placeholder="Klicke einen Button um ein Ticket zu öffnen…" oninput="updatePanelPreview()" style="resize:vertical;margin-bottom:10px;min-height:120px"></textarea>
                 <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Farbe</label>
                 <input id="panel-color" type="color" value="#5865f2" oninput="updatePanelPreview()" style="height:36px;width:100%;border-radius:8px;border:1px solid var(--border);background:transparent;cursor:pointer">
               </div>
 
               <div class="tk-sec" style="margin-bottom:16px">
-                <div class="tk-sec-title">Kategorien (Buttons)</div>
-                <div style="font-size:12px;color:var(--txt3);margin-bottom:10px">Wähle welche Kategorien als Buttons angezeigt werden (max. 5):</div>
-                <div id="panel-cat-checkboxes" style="display:flex;flex-direction:column;gap:8px">
-                  <div style="color:var(--txt3);font-size:13px">Keine Kategorien vorhanden.</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <div class="tk-sec-title" style="margin-bottom:0">Buttons (max. 5)</div>
+                  <button class="btn" onclick="addPanelButton()" style="padding:4px 12px;font-size:12px">+ Button</button>
+                </div>
+                <div id="panel-buttons-list">
+                  <div style="color:var(--txt3);font-size:13px;padding:8px 0">Klicke "+ Button" um einen Button hinzuzufügen.</div>
                 </div>
               </div>
 
@@ -3194,61 +3196,104 @@ async function saveTkConfig() {
 }
 
 /* ── Panel tab ───────────────────────────────── */
-function renderTkPanel() {
-  const cfg = S.ticketConfig;
-  const chSel = document.getElementById('panel-ch-select');
-  if (!cfg || !chSel) return;
+let panelButtons = []; // [{ uid, categoryId, label, emoji, style, color }]
 
-  // Category checkboxes
-  const catBox = document.getElementById('panel-cat-checkboxes');
-  const cats   = cfg.categories || [];
-  if (catBox) {
-    if (!cats.length) {
-      catBox.innerHTML = '<div style="color:var(--txt3);font-size:13px">Erstelle zuerst Kategorien.</div>';
-    } else {
-      catBox.innerHTML = cats.map(cat => `
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 10px;border-radius:8px;background:var(--bg3);border:1px solid var(--border)">
-          <input type="checkbox" class="panel-cat-cb" value="${esc(cat.id)}" onchange="updatePanelPreview()" style="width:16px;height:16px;cursor:pointer">
-          <span style="font-size:18px">${esc(cat.emoji||'🎫')}</span>
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:600;color:var(--txt)">${esc(cat.name)}</div>
-            <div style="font-size:11px;color:var(--txt3)">${esc(cat.description||'')}</div>
-          </div>
-          <div style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg);color:var(--txt3)">${esc(cat.buttonLabel||'Ticket erstellen')}</div>
-        </label>`).join('');
-    }
-  }
+function renderTkPanel() {
+  const chSel = document.getElementById('panel-ch-select');
+  if (!chSel) return;
 
   // Channel select
   const textChs = (S.channels || []).filter(c => c.type === 0 || c.type === 5);
   chSel.innerHTML = '<option value="">– Kanal auswählen –</option>' +
     textChs.map(c => `<option value="${esc(c.id)}"># ${esc(c.name)}</option>`).join('');
 
+  renderPanelButtons();
   updatePanelPreview();
 }
 
-function updatePanelPreview() {
-  const cfg  = S.ticketConfig;
-  const wrap = document.getElementById('panel-preview-wrap');
-  if (!wrap) return;
+function renderPanelButtons() {
+  const container = document.getElementById('panel-buttons-list');
+  if (!container) return;
+  const cats = S.ticketConfig?.categories || [];
 
-  const selectedIds = [...document.querySelectorAll('.panel-cat-cb:checked')].map(cb => cb.value);
-  const cats = (cfg?.categories || []).filter(c => selectedIds.includes(c.id));
-
-  if (!cats.length) {
-    wrap.innerHTML = '<div style="color:var(--txt3);font-size:13px">Wähle mindestens eine Kategorie aus</div>';
+  if (!panelButtons.length) {
+    container.innerHTML = '<div style="color:var(--txt3);font-size:13px;padding:8px 0">Klicke "+ Button" um einen Button hinzuzufügen.</div>';
     return;
   }
 
-  const title  = document.getElementById('panel-title')?.value.trim()  || '🎫 Support';
-  const desc   = document.getElementById('panel-desc')?.value.trim()   || 'Klicke einen Button um ein Ticket zu öffnen.';
-  const color  = document.getElementById('panel-color')?.value         || '#5865f2';
+  const styleColors = { Primary:'var(--blurple)', Secondary:'#4f545c', Success:'var(--green2)', Danger:'var(--red2)' };
 
-  const btnColors = { 1:'var(--blurple)', 2:'#4f545c', 3:'var(--green2)', 4:'var(--red2)' };
-  const btnHtml = cats.slice(0, 5).map(cat => {
-    const bg = btnColors[cat.buttonStyle || 1] || 'var(--blurple)';
+  container.innerHTML = panelButtons.map(btn => {
+    const catOpts = cats.map(c =>
+      `<option value="${esc(c.id)}" ${btn.categoryId === c.id ? 'selected' : ''}>${esc(c.emoji || '🎫')} ${esc(c.name)}</option>`
+    ).join('');
+    const styleBg = styleColors[btn.style] || 'var(--blurple)';
+    return `<div style="display:grid;grid-template-columns:36px 1fr 90px 120px 160px 28px;gap:6px;align-items:center;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px">
+      <input type="color" value="${esc(btn.color || '#5865f2')}"
+        onchange="updatePanelBtn('${btn.uid}','color',this.value)"
+        title="Button-Farbe (nur für Vorschau)"
+        style="width:36px;height:32px;border-radius:6px;border:1px solid var(--border);cursor:pointer;padding:2px">
+      <input class="modal-input" placeholder="Button-Label" value="${esc(btn.label)}"
+        oninput="updatePanelBtn('${btn.uid}','label',this.value)"
+        style="margin:0;font-size:13px">
+      <input class="modal-input" placeholder="Emoji" value="${esc(btn.emoji)}"
+        oninput="updatePanelBtn('${btn.uid}','emoji',this.value)"
+        style="margin:0;font-size:13px">
+      <select class="select-sm" onchange="updatePanelBtn('${btn.uid}','style',this.value)" style="font-size:12px">
+        ${['Primary','Secondary','Success','Danger'].map(s =>
+          `<option value="${s}" ${btn.style === s ? 'selected' : ''}>${s}</option>`).join('')}
+      </select>
+      <select class="select-sm" onchange="updatePanelBtn('${btn.uid}','categoryId',this.value)" style="font-size:12px">
+        <option value="">– Kategorie –</option>
+        ${catOpts}
+      </select>
+      <button onclick="removePanelButton('${btn.uid}')" title="Entfernen"
+        style="background:none;border:none;color:var(--txt3);cursor:pointer;font-size:18px;line-height:1;padding:0;text-align:center">×</button>
+    </div>`;
+  }).join('');
+}
+
+function addPanelButton() {
+  if (panelButtons.length >= 5) { toast('Maximal 5 Buttons erlaubt.', 'err'); return; }
+  panelButtons.push({ uid: 'pb_' + Date.now(), categoryId: '', label: '', emoji: '', style: 'Primary', color: '#5865f2' });
+  renderPanelButtons();
+  updatePanelPreview();
+}
+
+function removePanelButton(uid) {
+  panelButtons = panelButtons.filter(b => b.uid !== uid);
+  renderPanelButtons();
+  updatePanelPreview();
+}
+
+function updatePanelBtn(uid, field, value) {
+  const btn = panelButtons.find(b => b.uid === uid);
+  if (btn) { btn[field] = value; updatePanelPreview(); }
+}
+
+function updatePanelPreview() {
+  const wrap = document.getElementById('panel-preview-wrap');
+  if (!wrap) return;
+
+  if (!panelButtons.length) {
+    wrap.innerHTML = '<div style="color:var(--txt3);font-size:13px">Füge mindestens einen Button hinzu</div>';
+    return;
+  }
+
+  const title = document.getElementById('panel-title')?.value.trim()  || '🎫 Support';
+  const desc  = document.getElementById('panel-desc')?.value.trim()   || 'Klicke einen Button um ein Ticket zu öffnen.';
+  const color = document.getElementById('panel-color')?.value         || '#5865f2';
+
+  const styleColors = { Primary:'var(--blurple)', Secondary:'#4f545c', Success:'var(--green2)', Danger:'var(--red2)' };
+  const cats = S.ticketConfig?.categories || [];
+
+  const btnHtml = panelButtons.slice(0, 5).map(btn => {
+    const cat = cats.find(c => c.id === btn.categoryId);
+    const label = btn.label || cat?.buttonLabel || cat?.name || 'Ticket erstellen';
+    const emoji = btn.emoji || cat?.buttonEmoji || '';
+    const bg = styleColors[btn.style] || 'var(--blurple)';
     return `<div style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:4px;font-size:13px;font-weight:600;background:${bg};color:#fff;white-space:nowrap">
-      ${cat.buttonEmoji ? esc(cat.buttonEmoji) + ' ' : ''}${esc(cat.buttonLabel || cat.name)}
+      ${emoji ? esc(emoji) + ' ' : ''}${esc(label)}
     </div>`;
   }).join('');
 
@@ -3257,24 +3302,33 @@ function updatePanelPreview() {
       <div style="font-weight:700;font-size:15px;color:var(--txt);margin-bottom:6px">${esc(title)}</div>
       <div style="font-size:13px;color:var(--txt2);line-height:1.5;white-space:pre-wrap">${esc(desc)}</div>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px">${btnHtml}</div>
-    ${cats.length > 5 ? '<div style="font-size:11px;color:var(--red2);margin-top:6px">⚠️ Nur die ersten 5 Kategorien werden als Buttons angezeigt.</div>' : ''}`;
+    <div style="display:flex;flex-wrap:wrap;gap:8px">${btnHtml}</div>`;
 }
 
 async function doPostPanel() {
-  const channelId   = document.getElementById('panel-ch-select')?.value;
-  const categoryIds = [...document.querySelectorAll('.panel-cat-cb:checked')].map(cb => cb.value);
-  const panelTitle  = document.getElementById('panel-title')?.value.trim();
-  const panelDesc   = document.getElementById('panel-desc')?.value.trim();
-  const panelColor  = document.getElementById('panel-color')?.value;
+  const channelId  = document.getElementById('panel-ch-select')?.value;
+  const panelTitle = document.getElementById('panel-title')?.value.trim();
+  const panelDesc  = document.getElementById('panel-desc')?.value.trim();
+  const panelColor = document.getElementById('panel-color')?.value;
 
-  if (!channelId)         { toast('Bitte einen Kanal auswählen.', 'err'); return; }
-  if (!categoryIds.length){ toast('Bitte mindestens eine Kategorie auswählen.', 'err'); return; }
+  if (!channelId)          { toast('Bitte einen Kanal auswählen.', 'err'); return; }
+  if (!panelButtons.length){ toast('Bitte mindestens einen Button hinzufügen.', 'err'); return; }
+  const missing = panelButtons.filter(b => !b.categoryId);
+  if (missing.length)      { toast('Bitte für jeden Button eine Kategorie auswählen.', 'err'); return; }
+
+  const buttons = panelButtons.map(b => ({
+    categoryId: b.categoryId,
+    label: b.label,
+    emoji: b.emoji,
+    style: b.style,
+    color: b.color,
+  }));
+
   try {
     await api(`/api/guilds/${S.guild.id}/panel`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channelId, categoryIds, panelTitle, panelDescription: panelDesc, panelColor }),
+      body: JSON.stringify({ channelId, buttons, panelTitle, panelDescription: panelDesc, panelColor }),
     });
     toast('Panel wurde gesendet! ✅', 'ok');
   } catch (e) { toast('Fehler: ' + e.message, 'err'); }

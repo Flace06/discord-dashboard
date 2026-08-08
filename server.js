@@ -1469,27 +1469,50 @@ function buildTicketButtons(cat, guildCfg) {
 // ── Post panel to channel ─────────────────────────────────────
 // categories: array of category objects
 // panelTitle/Description/Color: optional overrides for the embed
-async function postPanel(channel, categories, panelTitle, panelDescription, panelColor) {
+async function postPanel(channel, categories, panelTitle, panelDescription, panelColor, buttonOverrides = null) {
   if (!Array.isArray(categories)) categories = [categories]; // backward compat
 
-  const firstCat = categories[0] || {};
+  const styleMap = {
+    Primary: ButtonStyle.Primary, Secondary: ButtonStyle.Secondary,
+    Success: ButtonStyle.Success, Danger: ButtonStyle.Danger,
+  };
+
+  let buttonList;
+  if (buttonOverrides?.length) {
+    // New format: each override has { categoryId, label, emoji, style }
+    buttonList = buttonOverrides.slice(0, 5).map(b => {
+      const cat = categories.find(c => c.id === b.categoryId) || {};
+      const btn = new ButtonBuilder()
+        .setCustomId(`ticket_create_${b.categoryId}`)
+        .setLabel(b.label || cat.buttonLabel || cat.name || 'Ticket erstellen')
+        .setStyle(styleMap[b.style] || cat.buttonStyle || ButtonStyle.Primary);
+      const emoji = b.emoji || cat.buttonEmoji;
+      if (emoji) { try { btn.setEmoji(emoji); } catch {} }
+      return btn;
+    });
+  } else {
+    buttonList = categories.slice(0, 5).map(cat => {
+      const btn = new ButtonBuilder()
+        .setCustomId(`ticket_create_${cat.id}`)
+        .setLabel(cat.buttonLabel || cat.name || 'Ticket erstellen')
+        .setStyle(cat.buttonStyle || ButtonStyle.Primary);
+      if (cat.buttonEmoji) { try { btn.setEmoji(cat.buttonEmoji); } catch {} }
+      return btn;
+    });
+  }
+
+  const firstCat = buttonOverrides?.length
+    ? (categories.find(c => c.id === buttonOverrides[0]?.categoryId) || {})
+    : (categories[0] || {});
+
   const embed = new EmbedBuilder()
     .setTitle(panelTitle || firstCat.panelTitle || `${firstCat.emoji || '🎫'} ${firstCat.name || 'Support'}`)
-    .setDescription(panelDescription || (categories.length === 1 ? firstCat.panelDescription : 'Wähle eine Kategorie aus:') || 'Klicke den Button, um ein Ticket zu erstellen.')
+    .setDescription(panelDescription || (buttonList.length === 1 ? firstCat.panelDescription : 'Wähle eine Kategorie aus:') || 'Klicke den Button, um ein Ticket zu erstellen.')
     .setColor(panelColor || firstCat.panelColor || 0x5865f2);
 
-  const buttons = categories.slice(0, 5).map(cat => {
-    const btn = new ButtonBuilder()
-      .setCustomId(`ticket_create_${cat.id}`)
-      .setLabel(cat.buttonLabel || cat.name || 'Ticket erstellen')
-      .setStyle(cat.buttonStyle || ButtonStyle.Primary);
-    if (cat.buttonEmoji) { try { btn.setEmoji(cat.buttonEmoji); } catch {} }
-    return btn;
-  });
-
   const rows = [];
-  for (let i = 0; i < buttons.length; i += 5) {
-    rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+  for (let i = 0; i < buttonList.length; i += 5) {
+    rows.push(new ActionRowBuilder().addComponents(buttonList.slice(i, i + 5)));
   }
 
   await channel.send({ embeds: [embed], components: rows });
@@ -1800,16 +1823,28 @@ app.get('/api/guilds/:id/tickets', requireAuth, (req, res) => {
 
 // POST panel to channel
 app.post('/api/guilds/:id/panel', requireAuth, async (req, res) => {
-  const { channelId, categoryIds, categoryId, panelTitle, panelDescription, panelColor } = req.body;
-  const ids = categoryIds?.length ? categoryIds : (categoryId ? [categoryId] : null);
-  if (!channelId || !ids?.length) return res.status(400).json({ error: 'channelId und categoryIds erforderlich' });
+  const { channelId, buttons, categoryIds, categoryId, panelTitle, panelDescription, panelColor } = req.body;
+  if (!channelId) return res.status(400).json({ error: 'channelId erforderlich' });
   try {
     const guildCfg = cfg.getGuild(req.params.id);
-    const cats = ids.map(id => guildCfg.categories.find(c => c.id === id)).filter(Boolean);
-    if (!cats.length) return res.status(404).json({ error: 'Keine gültigen Kategorien gefunden' });
-    const channel = await client.channels.fetch(channelId);
-    const color = panelColor ? parseInt(panelColor.replace('#',''), 16) : null;
-    await postPanel(channel, cats, panelTitle || '', panelDescription || '', color);
+    const allCats  = guildCfg.categories || [];
+    const channel  = await client.channels.fetch(channelId);
+    const color    = panelColor ? parseInt(panelColor.replace('#',''), 16) : null;
+
+    if (buttons?.length) {
+      // New format: explicit button array with overrides
+      const invalid = buttons.filter(b => !allCats.find(c => c.id === b.categoryId));
+      if (invalid.length) return res.status(404).json({ error: 'Unbekannte categoryId in buttons' });
+      await postPanel(channel, allCats, panelTitle || '', panelDescription || '', color, buttons);
+    } else {
+      // Legacy format: categoryIds array
+      const ids = categoryIds?.length ? categoryIds : (categoryId ? [categoryId] : null);
+      if (!ids?.length) return res.status(400).json({ error: 'buttons oder categoryIds erforderlich' });
+      const cats = ids.map(id => allCats.find(c => c.id === id)).filter(Boolean);
+      if (!cats.length) return res.status(404).json({ error: 'Keine gültigen Kategorien gefunden' });
+      await postPanel(channel, cats, panelTitle || '', panelDescription || '', color);
+    }
+
     res.json({ success: true });
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
