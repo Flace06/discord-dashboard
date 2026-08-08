@@ -593,11 +593,11 @@ async function handleModCommand(msg) {
   const command = parts[0].toLowerCase();
   const args    = parts.slice(1); // everything after command name
 
-  const MOD_COMMANDS = ['ban','unban','kick','timeout','mute','untimeout','unmute','warn','modlogs'];
+  const MOD_COMMANDS = ['ban','unban','kick','timeout','mute','untimeout','unmute','warn','modlogs','purge','clear'];
   if (!MOD_COMMANDS.includes(command)) return;
 
   // Check if this specific command is enabled (default: true)
-  const canonicalCmd = command === 'mute' ? 'timeout' : command === 'unmute' ? 'untimeout' : command;
+  const canonicalCmd = command === 'mute' ? 'timeout' : command === 'unmute' ? 'untimeout' : command === 'clear' ? 'purge' : command;
   if (modCmds[canonicalCmd]?.enabled === false) return;
 
   // Permission check — must have ModerateMembers or BanMembers
@@ -776,6 +776,72 @@ async function handleModCommand(msg) {
       targetUser, targetId, moderator: msg.author,
       reason, proof,
     });
+  }
+
+  // ── !purge / !clear [anzahl] [user_id?] ──────────────────
+  else if (command === 'purge' || command === 'clear') {
+    if (!member.permissions.has(PermissionFlagsBits.ManageMessages))
+      return msg.channel.send({ content: '❌ Du benötigst die `MANAGE_MESSAGES` Berechtigung.' }).then(m => setTimeout(() => m.delete().catch(()=>{}), 5000));
+
+    const amount   = parseInt(args[0]);
+    const filterUser = args[1] || null; // optional user-ID zum Filtern
+
+    if (!amount || amount < 1 || amount > 100)
+      return msg.channel.send({ content: '❌ Bitte eine Zahl zwischen 1 und 100 angeben. Usage: `!purge [1-100] [user_id?]`' })
+        .then(m => setTimeout(() => m.delete().catch(()=>{}), 5000));
+
+    try {
+      // Nachrichten der letzten 14 Tage holen (Discord-Limit für bulkDelete)
+      let messages = await msg.channel.messages.fetch({ limit: Math.min(amount + 1, 100) });
+
+      // Zu alte Nachrichten rausfiltern (> 14 Tage → Discord löscht sie nicht)
+      const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+      messages = messages.filter(m => m.createdTimestamp > twoWeeksAgo);
+
+      // Nach User filtern wenn angegeben
+      if (filterUser) {
+        messages = messages.filter(m => m.author.id === filterUser);
+      }
+
+      // Command-Nachricht ist schon gelöscht, Anzahl auf max begrenzen
+      const toDelete = messages.first(amount);
+      if (!toDelete.length) {
+        return msg.channel.send({ content: 'ℹ️ Keine löschbaren Nachrichten gefunden (max. 14 Tage alt).' })
+          .then(m => setTimeout(() => m.delete().catch(()=>{}), 5000));
+      }
+
+      const deleted = await msg.channel.bulkDelete(toDelete, true);
+
+      const info = await msg.channel.send({
+        embeds: [new EmbedBuilder()
+          .setColor(0x5865F2)
+          .setDescription(`🗑️ **${deleted.size}** Nachrichten gelöscht${filterUser ? ` von <@${filterUser}>` : ''} – von ${msg.author}`)
+          .setTimestamp(),
+        ],
+      });
+      setTimeout(() => info.delete().catch(() => {}), 5000);
+
+      // Modlog-Eintrag
+      const caseNum = recordModAction(msg.guild.id, msg.author.id, {
+        action: 'Purge',
+        reason: `${deleted.size} Nachrichten gelöscht${filterUser ? ` von User ${filterUser}` : ''}`,
+        moderator: msg.author.id,
+      });
+      const logEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle(`🗑️ Purge | Case #${caseNum}`)
+        .addFields(
+          { name: '🛡️ Moderator', value: msg.author.tag, inline: true },
+          { name: '📢 Channel',    value: `<#${msg.channel.id}>`, inline: true },
+          { name: '🗑️ Gelöscht',   value: `${deleted.size} Nachrichten${filterUser ? ` von <@${filterUser}>` : ''}`, inline: true },
+        )
+        .setTimestamp();
+      await sendLog(msg.guild.id, 'moderation', logEmbed);
+
+    } catch (e) {
+      msg.channel.send({ content: `❌ Fehler beim Löschen: ${e.message}` })
+        .then(m => setTimeout(() => m.delete().catch(()=>{}), 6000));
+    }
   }
 }
 
