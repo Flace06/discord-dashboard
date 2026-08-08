@@ -2494,8 +2494,12 @@ async function loadBotProfilePage() {
   const el = document.getElementById('bp-body');
   el.innerHTML = '<div class="loading"><div class="spin"></div> Laden…</div>';
   try {
-    const data = await api('/api/bot/profile');
-    S.botProfile = data;
+    const [profile, botCfg] = await Promise.all([
+      api('/api/bot/profile'),
+      api(`/api/guilds/${S.guild.id}/bot-settings`),
+    ]);
+    S.botProfile   = profile;
+    S.botSettings  = botCfg;
     renderBotProfilePage();
   } catch (e) {
     el.innerHTML = errHtml('Bot-Profil konnte nicht geladen werden.');
@@ -2503,25 +2507,29 @@ async function loadBotProfilePage() {
 }
 
 function renderBotProfilePage() {
-  const p = S.botProfile || {};
-  const pr = p.presence || {};
-  const statusOpts = [
+  const p  = S.botProfile  || {};
+  const pr = p.presence    || {};
+  const bs = S.botSettings || {};
+  const dm = bs.dmMessages || {};
+
+  const statusOpts  = [
     { v:'online',    label:'🟢 Online' },
     { v:'idle',      label:'🟡 Abwesend' },
     { v:'dnd',       label:'🔴 Nicht stören' },
     { v:'invisible', label:'⚫ Unsichtbar' },
   ];
   const actTypeOpts = ['Playing','Watching','Listening','Streaming','Competing','Custom'];
+  const isStream    = pr.activityType === 'Streaming';
 
   document.getElementById('bp-body').innerHTML = `
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:860px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:920px">
 
-    <!-- Left: identity -->
+    <!-- ── Col 1 ── -->
     <div>
+
+      <!-- Identity -->
       <div class="tk-sec" style="margin-bottom:20px">
         <div class="tk-sec-title">Identität</div>
-
-        <!-- Avatar -->
         <div style="display:flex;align-items:center;gap:18px;margin-bottom:20px">
           <div style="position:relative;cursor:pointer" onclick="document.getElementById('bp-av-input').click()">
             <img id="bp-avatar-img" src="${esc(p.avatarURL || '')}" alt="Avatar"
@@ -2540,33 +2548,81 @@ function renderBotProfilePage() {
           <img id="bp-av-preview" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid var(--blurple)">
           <span style="font-size:12px;color:var(--txt3);margin-left:10px">Neues Bild (noch nicht gespeichert)</span>
         </div>
-
-        <!-- Username -->
         <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Benutzername</label>
         <input id="bp-username" class="modal-input" value="${esc(p.username || '')}" placeholder="Bot-Name" style="margin-bottom:6px">
         <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">⚠️ Discord erlaubt max. 2 Namensänderungen pro Stunde.</div>
-
         <button class="btn btn-primary" style="width:100%" onclick="bpSaveIdentity()">💾 Identität speichern</button>
       </div>
+
+      <!-- Server Bot-Einstellungen -->
+      <div class="tk-sec">
+        <div class="tk-sec-title">Server-Konfiguration</div>
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Befehlsprefix</label>
+        <input id="bp-prefix" class="modal-input" value="${esc(bs.prefix || '!')}" placeholder="!" maxlength="5" style="margin-bottom:16px;width:80px">
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Standard-Embed-Farbe</label>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <input id="bp-defcolor" type="color" value="${esc(bs.defaultColor || '#5865f2')}"
+            style="width:50px;height:36px;border-radius:6px;border:1px solid var(--border);cursor:pointer">
+          <span style="font-size:12px;color:var(--txt3)">Wird als Standard für Bot-Embeds verwendet</span>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--txt)">DM bei Moderation</div>
+            <div style="font-size:11px;color:var(--txt3)">User bei Ban/Kick/Timeout anschreiben</div>
+          </div>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="bp-dmon" ${bs.dmOnModeration ? 'checked' : ''} onchange="bpToggleDmSection()">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div id="bp-dm-section" style="${bs.dmOnModeration ? '' : 'display:none'}">
+          <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
+            Platzhalter: <code>{server}</code> <code>{reason}</code> <code>{duration}</code> <code>{moderator}</code>
+          </div>
+          ${[
+            { key:'ban',     label:'Ban-Nachricht',     def:'Du wurdest vom Server **{server}** gebannt.\nGrund: {reason}' },
+            { key:'kick',    label:'Kick-Nachricht',    def:'Du wurdest vom Server **{server}** gekickt.\nGrund: {reason}' },
+            { key:'timeout', label:'Timeout-Nachricht', def:'Du wurdest auf dem Server **{server}** getimeouted.\nGrund: {reason}\nDauer: {duration}' },
+            { key:'warn',    label:'Warn-Nachricht',    def:'Du hast auf dem Server **{server}** eine Verwarnung erhalten.\nGrund: {reason}' },
+          ].map(d => `
+          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">${d.label}</label>
+          <textarea id="bp-dm-${d.key}" class="modal-input" rows="2" style="margin-bottom:10px;resize:vertical;font-size:12px">${esc(dm[d.key] || d.def)}</textarea>`).join('')}
+        </div>
+
+        <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="bpSaveServerSettings()">💾 Server-Einstellungen speichern</button>
+      </div>
+
     </div>
 
-    <!-- Right: presence -->
+    <!-- ── Col 2 ── -->
     <div>
-      <div class="tk-sec">
+
+      <!-- Presence -->
+      <div class="tk-sec" style="margin-bottom:20px">
         <div class="tk-sec-title">Online-Status & Aktivität</div>
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:12px">💡 Wird beim Neustart wiederhergestellt</div>
 
         <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Status</label>
-        <select id="bp-status" class="select-sm" style="width:100%;margin-bottom:16px">
+        <select id="bp-status" class="select-sm" style="width:100%;margin-bottom:16px" onchange="bpUpdatePresencePreview()">
           ${statusOpts.map(o => `<option value="${o.v}" ${pr.status===o.v?'selected':''}>${o.label}</option>`).join('')}
         </select>
 
         <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Typ</label>
-        <select id="bp-act-type" class="select-sm" style="width:100%;margin-bottom:16px">
+        <select id="bp-act-type" class="select-sm" style="width:100%;margin-bottom:16px" onchange="bpOnTypeChange()">
           ${actTypeOpts.map(t => `<option value="${t}" ${pr.activityType===t?'selected':''}>${t}</option>`).join('')}
         </select>
 
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Text <span style="color:var(--txt3);font-weight:400">(leer lassen = keine Aktivität)</span></label>
-        <input id="bp-act-text" class="modal-input" value="${esc(pr.activityText || '')}" placeholder="z.B. Server Dashboard" oninput="bpUpdatePresencePreview()" style="margin-bottom:16px">
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Text <span style="font-weight:400">(leer = keine Aktivität)</span></label>
+        <input id="bp-act-text" class="modal-input" value="${esc(pr.activityText || '')}" placeholder="z.B. Server Dashboard" oninput="bpUpdatePresencePreview()" style="margin-bottom:12px">
+
+        <div id="bp-stream-url-wrap" style="${isStream ? '' : 'display:none'}">
+          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Stream-URL <span style="font-weight:400">(Twitch oder YouTube)</span></label>
+          <input id="bp-stream-url" class="modal-input" value="${esc(pr.streamUrl || '')}" placeholder="https://twitch.tv/…" style="margin-bottom:12px">
+        </div>
 
         <!-- Preview -->
         <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;margin-bottom:16px">
@@ -2585,8 +2641,8 @@ function renderBotProfilePage() {
 
         <button class="btn btn-primary" style="width:100%" onclick="bpSavePresence()">💾 Status speichern</button>
       </div>
-    </div>
 
+    </div>
   </div>`;
 
   bpUpdatePresencePreview();
@@ -2608,6 +2664,19 @@ function bpPreviewAvatar(input) {
   reader.readAsDataURL(file);
 }
 
+function bpOnTypeChange() {
+  const t = document.getElementById('bp-act-type')?.value;
+  const wrap = document.getElementById('bp-stream-url-wrap');
+  if (wrap) wrap.style.display = t === 'Streaming' ? '' : 'none';
+  bpUpdatePresencePreview();
+}
+
+function bpToggleDmSection() {
+  const on = document.getElementById('bp-dmon')?.checked;
+  const sec = document.getElementById('bp-dm-section');
+  if (sec) sec.style.display = on ? '' : 'none';
+}
+
 function bpUpdatePresencePreview() {
   const status = document.getElementById('bp-status')?.value || 'online';
   const type   = document.getElementById('bp-act-type')?.value || 'Watching';
@@ -2620,19 +2689,17 @@ function bpUpdatePresencePreview() {
 }
 
 async function bpSaveIdentity() {
-  const username     = document.getElementById('bp-username')?.value.trim();
+  const username      = document.getElementById('bp-username')?.value.trim();
   const avatarDataURL = _bpAvatarDataURL;
   if (!username && !avatarDataURL) { toast('Nichts zu speichern.', 'err'); return; }
   try {
     const body = {};
-    if (username)     body.username     = username;
+    if (username)      body.username      = username;
     if (avatarDataURL) body.avatarDataURL = avatarDataURL;
     const res = await api('/api/bot/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    // Update avatar display
     if (res.avatarURL) {
       const img = document.getElementById('bp-avatar-img');
       if (img) img.src = res.avatarURL + '?t=' + Date.now();
@@ -2648,13 +2715,37 @@ async function bpSavePresence() {
   const status       = document.getElementById('bp-status')?.value;
   const activityType = document.getElementById('bp-act-type')?.value;
   const activityText = document.getElementById('bp-act-text')?.value.trim();
+  const streamUrl    = document.getElementById('bp-stream-url')?.value.trim();
   try {
     await api('/api/bot/presence', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, activityType, activityText }),
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, activityType, activityText, streamUrl }),
     });
     toast('Status gespeichert! ✅', 'ok');
+  } catch (e) { toast('Fehler: ' + e.message, 'err'); }
+}
+
+async function bpSaveServerSettings() {
+  const prefix        = document.getElementById('bp-prefix')?.value.trim() || '!';
+  const defaultColor  = document.getElementById('bp-defcolor')?.value || '#5865f2';
+  const dmOnModeration= document.getElementById('bp-dmon')?.checked || false;
+  const dmMessages    = {};
+  for (const k of ['ban','kick','timeout','warn']) {
+    const el = document.getElementById(`bp-dm-${k}`);
+    if (el) dmMessages[k] = el.value;
+  }
+  try {
+    await api(`/api/guilds/${S.guild.id}/bot-settings`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefix, defaultColor, dmOnModeration, dmMessages }),
+    });
+    if (S.botSettings) {
+      S.botSettings.prefix = prefix;
+      S.botSettings.defaultColor = defaultColor;
+      S.botSettings.dmOnModeration = dmOnModeration;
+      S.botSettings.dmMessages = dmMessages;
+    }
+    toast('Server-Einstellungen gespeichert! ✅', 'ok');
   } catch (e) { toast('Fehler: ' + e.message, 'err'); }
 }
 

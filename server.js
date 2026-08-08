@@ -5,6 +5,7 @@
 
 const express  = require('express');
 const session  = require('express-session');
+const fs       = require('fs');
 const {
   Client, GatewayIntentBits, ActivityType,
   ButtonBuilder, ButtonStyle, ActionRowBuilder,
@@ -28,6 +29,13 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'change-me-please';
 
 // ── Auto-close timer store ───────────────────────────────────
 const autoCloseTimers = new Map();
+
+// ── Bot-state persistence (presence, etc.) ───────────────────
+let botState = {};
+try { botState = JSON.parse(fs.readFileSync('./bot-state.json', 'utf8')); } catch {}
+function saveBotState() {
+  try { fs.writeFileSync('./bot-state.json', JSON.stringify(botState, null, 2)); } catch {}
+}
 
 // ── Slash commands definition ────────────────────────────────
 const SLASH_COMMANDS = [
@@ -61,7 +69,12 @@ const client = new Client({
 
 client.once('ready', async () => {
   console.log(`🤖 Bot online als ${client.user.tag}`);
-  client.user.setActivity('Server Dashboard', { type: ActivityType.Watching });
+  // Restore last saved presence, or fall back to default
+  if (botState.presence) {
+    try { client.user.setPresence(botState.presence); } catch {}
+  } else {
+    client.user.setActivity('Server Dashboard', { type: ActivityType.Watching });
+  }
 
   // Register slash commands globally
   if (CLIENT_ID) {
@@ -621,6 +634,19 @@ async function postModLog(msg, { action, color, emoji, targetUser, targetId, mod
   }
 }
 
+async function sendModDM(guildCfg, targetUser, action, placeholders) {
+  const bs = guildCfg.botSettings || {};
+  if (!bs.dmOnModeration || !targetUser) return;
+  const template = (bs.dmMessages || {})[action] ||
+    `Du wurdest auf dem Server **{server}** ${action === 'ban' ? 'gebannt' : action === 'kick' ? 'gekickt' : action === 'timeout' ? 'getimeouted' : 'verwarnt'}.`;
+  const text = template
+    .replace(/\{server\}/g,   placeholders.server   || '')
+    .replace(/\{reason\}/g,   placeholders.reason   || 'Kein Grund angegeben')
+    .replace(/\{duration\}/g, placeholders.duration || '')
+    .replace(/\{moderator\}/g,placeholders.moderator|| '');
+  try { await targetUser.send({ content: text }); } catch {}
+}
+
 async function handleModCommand(msg) {
   const guildCfg     = cfg.getGuild(msg.guild.id);
   const cmdCfg       = guildCfg.commandsConfig || {};
@@ -717,6 +743,7 @@ async function handleModCommand(msg) {
     const reason = banArgs.slice(1).join(' ');
 
     try {
+      await sendModDM(guildCfg, targetUser, 'ban', { server: msg.guild.name, reason, moderator: msg.author.tag });
       await msg.guild.members.ban(targetId, { reason: reason || 'Kein Grund angegeben', deleteMessageSeconds: 0 });
     } catch (e) {
       return msg.reply({ content: `❌ Ban fehlgeschlagen: ${e.message}` });
@@ -755,6 +782,7 @@ async function handleModCommand(msg) {
     const reason = kickArgs.slice(1).join(' ');
 
     try {
+      await sendModDM(guildCfg, targetUser, 'kick', { server: msg.guild.name, reason, moderator: msg.author.tag });
       const gm = await msg.guild.members.fetch(targetId);
       await gm.kick(reason || 'Kein Grund angegeben');
     } catch (e) {
@@ -781,6 +809,7 @@ async function handleModCommand(msg) {
     const reason = toArgs.slice(2).join(' ');
 
     try {
+      await sendModDM(guildCfg, targetUser, 'timeout', { server: msg.guild.name, reason, moderator: msg.author.tag, duration: durationStr });
       const gm = await msg.guild.members.fetch(targetId);
       await gm.timeout(ms, reason || 'Kein Grund angegeben');
     } catch (e) {
@@ -1858,15 +1887,17 @@ app.get('/api/bot/profile', requireAuth, (req, res) => {
   try {
     const u = client.user;
     if (!u) return res.status(503).json({ error: 'Bot nicht verbunden' });
+    const pm = botState.presenceMeta || {};
     res.json({
       id:            u.id,
       username:      u.username,
       discriminator: u.discriminator,
       avatarURL:     u.displayAvatarURL({ size: 256, extension: 'png' }),
       presence: {
-        status:       client.presence?.status || 'online',
-        activityType: client._botPresence?.activityType || 'Watching',
-        activityText: client._botPresence?.activityText || 'Server Dashboard',
+        status:       pm.status       || 'online',
+        activityType: pm.activityType || 'Watching',
+        activityText: pm.activityText || 'Server Dashboard',
+        streamUrl:    pm.streamUrl    || '',
       },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1893,7 +1924,7 @@ app.patch('/api/bot/profile', requireAuth, async (req, res) => {
 // PATCH bot presence (status + activity)
 app.patch('/api/bot/presence', requireAuth, async (req, res) => {
   try {
-    const { status, activityType, activityText } = req.body;
+    const { status, activityType, activityText, streamUrl } = req.body;
     const typeMap = {
       Playing:    ActivityType.Playing,
       Streaming:  ActivityType.Streaming,
@@ -1904,16 +1935,65 @@ app.patch('/api/bot/presence', requireAuth, async (req, res) => {
     };
     const presence = { status: status || 'online' };
     if (activityText) {
-      presence.activities = [{
+      const actEntry = {
         name: activityText,
         type: typeMap[activityType] ?? ActivityType.Watching,
-      }];
+      };
+      if (activityType === 'Streaming' && streamUrl) actEntry.url = streamUrl;
+      presence.activities = [actEntry];
     } else {
       presence.activities = [];
     }
     client.user.setPresence(presence);
-    // Remember for GET
-    client._botPresence = { activityType: activityType || 'Watching', activityText: activityText || '' };
+    // Persist across restarts
+    botState.presence     = presence;
+    botState.presenceMeta = { status, activityType, activityText, streamUrl: streamUrl || '' };
+    saveBotState();
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ════════════════════════════════════════════════════════════
+//  GUILD BOT-SETTINGS API ROUTES
+// ════════════════════════════════════════════════════════════
+
+const DEFAULT_BOT_SETTINGS = {
+  prefix:          '!',
+  defaultColor:    '#5865f2',
+  dmOnModeration:  false,
+  dmMessages: {
+    ban:     'Du wurdest vom Server **{server}** gebannt.\nGrund: {reason}',
+    kick:    'Du wurdest vom Server **{server}** gekickt.\nGrund: {reason}',
+    timeout: 'Du wurdest auf dem Server **{server}** getimeouted.\nGrund: {reason}\nDauer: {duration}',
+    warn:    'Du hast auf dem Server **{server}** eine Verwarnung erhalten.\nGrund: {reason}',
+  },
+};
+
+app.get('/api/guilds/:id/bot-settings', requireAuth, (req, res) => {
+  try {
+    const guildCfg = cfg.getGuild(req.params.id);
+    res.json({ ...DEFAULT_BOT_SETTINGS, ...(guildCfg.botSettings || {}) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/guilds/:id/bot-settings', requireAuth, async (req, res) => {
+  try {
+    const { prefix, defaultColor, dmOnModeration, dmMessages } = req.body;
+    const guildCfg = cfg.getGuild(req.params.id);
+    guildCfg.botSettings = {
+      ...DEFAULT_BOT_SETTINGS,
+      ...(guildCfg.botSettings || {}),
+      ...(prefix        !== undefined ? { prefix }        : {}),
+      ...(defaultColor  !== undefined ? { defaultColor }  : {}),
+      ...(dmOnModeration!== undefined ? { dmOnModeration} : {}),
+      ...(dmMessages    !== undefined ? { dmMessages }    : {}),
+    };
+    // Also update prefix in commandsConfig for backward-compat
+    if (prefix !== undefined) {
+      if (!guildCfg.commandsConfig) guildCfg.commandsConfig = {};
+      guildCfg.commandsConfig.prefix = prefix;
+    }
+    await cfg.saveGuild(req.params.id, guildCfg);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
