@@ -1850,6 +1850,75 @@ app.post('/api/guilds/:id/panel', requireAuth, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
+//  BOT PROFILE API ROUTES
+// ════════════════════════════════════════════════════════════
+
+// GET current bot profile info
+app.get('/api/bot/profile', requireAuth, (req, res) => {
+  try {
+    const u = client.user;
+    if (!u) return res.status(503).json({ error: 'Bot nicht verbunden' });
+    res.json({
+      id:            u.id,
+      username:      u.username,
+      discriminator: u.discriminator,
+      avatarURL:     u.displayAvatarURL({ size: 256, extension: 'png' }),
+      presence: {
+        status:       client.presence?.status || 'online',
+        activityType: client._botPresence?.activityType || 'Watching',
+        activityText: client._botPresence?.activityText || 'Server Dashboard',
+      },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH bot username / avatar
+app.patch('/api/bot/profile', requireAuth, async (req, res) => {
+  try {
+    const { username, avatarDataURL } = req.body;
+    if (username) await client.user.setUsername(username);
+    if (avatarDataURL) await client.user.setAvatar(avatarDataURL);
+    res.json({
+      username:  client.user.username,
+      avatarURL: client.user.displayAvatarURL({ size: 256, extension: 'png' }),
+    });
+  } catch (e) {
+    const msg = e.message?.includes('USERNAME_TOO_MANY_CHANGES')
+      ? 'Benutzername kann nur 2× pro Stunde geändert werden.'
+      : e.message;
+    res.status(400).json({ error: msg });
+  }
+});
+
+// PATCH bot presence (status + activity)
+app.patch('/api/bot/presence', requireAuth, async (req, res) => {
+  try {
+    const { status, activityType, activityText } = req.body;
+    const typeMap = {
+      Playing:    ActivityType.Playing,
+      Streaming:  ActivityType.Streaming,
+      Listening:  ActivityType.Listening,
+      Watching:   ActivityType.Watching,
+      Competing:  ActivityType.Competing,
+      Custom:     ActivityType.Custom,
+    };
+    const presence = { status: status || 'online' };
+    if (activityText) {
+      presence.activities = [{
+        name: activityText,
+        type: typeMap[activityType] ?? ActivityType.Watching,
+      }];
+    } else {
+      presence.activities = [];
+    }
+    client.user.setPresence(presence);
+    // Remember for GET
+    client._botPresence = { activityType: activityType || 'Watching', activityText: activityText || '' };
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ════════════════════════════════════════════════════════════
 //  AUTOROLE API ROUTES
 // ════════════════════════════════════════════════════════════
 

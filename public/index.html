@@ -592,6 +592,7 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
       <div class="nav-item" data-page="settings"><span class="ni">⚙️</span> Einstellungen</div>
 
       <div class="nav-label">Bot</div>
+      <div class="nav-item" data-page="botprofile"><span class="ni">🤖</span> Bot-Profil</div>
       <div class="nav-item" data-page="messages"><span class="ni">✉️</span> Nachricht schreiben</div>
       <div class="nav-item" data-page="commands"><span class="ni">⚡</span> Commands</div>
 
@@ -727,6 +728,15 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
       <div class="pg-body">
         <div id="settings-body"><div class="loading"><div class="spin"></div> Laden…</div></div>
       </div>
+    </div>
+
+    <!-- BOT PROFILE -->
+    <div id="page-botprofile" class="hidden">
+      <div class="pg-header">
+        <h1>🤖 Bot-Profil</h1>
+        <p>Profilbild, Name und Online-Status des Bots anpassen</p>
+      </div>
+      <div id="bp-body"><div class="loading"><div class="spin"></div> Laden…</div></div>
     </div>
 
     <!-- MESSAGES -->
@@ -1279,7 +1289,8 @@ async function loadPage(page) {
   else if (page === 'tickets')   loadTicketsPage();
   else if (page === 'autorole')   loadAutorolePage();
   else if (page === 'serverlog')  loadServerLogPage();
-  else if (page === 'commands')   loadCommandsPage();
+  else if (page === 'commands')    loadCommandsPage();
+  else if (page === 'botprofile')  loadBotProfilePage();
 }
 
 /* ─── OVERVIEW ─────────────────────────────── */
@@ -2474,6 +2485,177 @@ async function saveServerLogConfig() {
 /* ─── ERROR HTML ────────────────────────────── */
 function errHtml(msg) {
   return `<div class="empty"><div class="eic">⚠️</div><h3>Fehler</h3><p>${esc(msg)}</p></div>`;
+}
+
+/* ══════════════════════════════════════════════
+   BOT PROFILE
+══════════════════════════════════════════════ */
+async function loadBotProfilePage() {
+  const el = document.getElementById('bp-body');
+  el.innerHTML = '<div class="loading"><div class="spin"></div> Laden…</div>';
+  try {
+    const data = await api('/api/bot/profile');
+    S.botProfile = data;
+    renderBotProfilePage();
+  } catch (e) {
+    el.innerHTML = errHtml('Bot-Profil konnte nicht geladen werden.');
+  }
+}
+
+function renderBotProfilePage() {
+  const p = S.botProfile || {};
+  const pr = p.presence || {};
+  const statusOpts = [
+    { v:'online',    label:'🟢 Online' },
+    { v:'idle',      label:'🟡 Abwesend' },
+    { v:'dnd',       label:'🔴 Nicht stören' },
+    { v:'invisible', label:'⚫ Unsichtbar' },
+  ];
+  const actTypeOpts = ['Playing','Watching','Listening','Streaming','Competing','Custom'];
+
+  document.getElementById('bp-body').innerHTML = `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:860px">
+
+    <!-- Left: identity -->
+    <div>
+      <div class="tk-sec" style="margin-bottom:20px">
+        <div class="tk-sec-title">Identität</div>
+
+        <!-- Avatar -->
+        <div style="display:flex;align-items:center;gap:18px;margin-bottom:20px">
+          <div style="position:relative;cursor:pointer" onclick="document.getElementById('bp-av-input').click()">
+            <img id="bp-avatar-img" src="${esc(p.avatarURL || '')}" alt="Avatar"
+              style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--border)">
+            <div style="position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;opacity:0;transition:.2s;font-size:22px"
+              onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0">✏️</div>
+          </div>
+          <div>
+            <div style="font-size:14px;font-weight:600;color:var(--txt);margin-bottom:4px">${esc(p.username || '')}${p.discriminator && p.discriminator !== '0' ? '<span style="color:var(--txt3)">#' + esc(p.discriminator) + '</span>' : ''}</div>
+            <div style="font-size:12px;color:var(--txt3);margin-bottom:8px">ID: ${esc(p.id || '')}</div>
+            <button class="btn" style="padding:4px 14px;font-size:12px" onclick="document.getElementById('bp-av-input').click()">📷 Bild ändern</button>
+          </div>
+        </div>
+        <input type="file" id="bp-av-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="bpPreviewAvatar(this)">
+        <div id="bp-av-preview-wrap" style="display:none;margin-bottom:14px">
+          <img id="bp-av-preview" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid var(--blurple)">
+          <span style="font-size:12px;color:var(--txt3);margin-left:10px">Neues Bild (noch nicht gespeichert)</span>
+        </div>
+
+        <!-- Username -->
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Benutzername</label>
+        <input id="bp-username" class="modal-input" value="${esc(p.username || '')}" placeholder="Bot-Name" style="margin-bottom:6px">
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">⚠️ Discord erlaubt max. 2 Namensänderungen pro Stunde.</div>
+
+        <button class="btn btn-primary" style="width:100%" onclick="bpSaveIdentity()">💾 Identität speichern</button>
+      </div>
+    </div>
+
+    <!-- Right: presence -->
+    <div>
+      <div class="tk-sec">
+        <div class="tk-sec-title">Online-Status & Aktivität</div>
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Status</label>
+        <select id="bp-status" class="select-sm" style="width:100%;margin-bottom:16px">
+          ${statusOpts.map(o => `<option value="${o.v}" ${pr.status===o.v?'selected':''}>${o.label}</option>`).join('')}
+        </select>
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Typ</label>
+        <select id="bp-act-type" class="select-sm" style="width:100%;margin-bottom:16px">
+          ${actTypeOpts.map(t => `<option value="${t}" ${pr.activityType===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Text <span style="color:var(--txt3);font-weight:400">(leer lassen = keine Aktivität)</span></label>
+        <input id="bp-act-text" class="modal-input" value="${esc(pr.activityText || '')}" placeholder="z.B. Server Dashboard" oninput="bpUpdatePresencePreview()" style="margin-bottom:16px">
+
+        <!-- Preview -->
+        <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Vorschau</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="position:relative">
+              <img src="${esc(p.avatarURL || '')}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
+              <div id="bp-status-dot" style="position:absolute;bottom:0;right:0;width:12px;height:12px;border-radius:50%;border:2px solid var(--bg3);background:var(--green2)"></div>
+            </div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--txt)">${esc(p.username || 'Bot')}</div>
+              <div id="bp-act-preview" style="font-size:11px;color:var(--txt3)"></div>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" style="width:100%" onclick="bpSavePresence()">💾 Status speichern</button>
+      </div>
+    </div>
+
+  </div>`;
+
+  bpUpdatePresencePreview();
+}
+
+let _bpAvatarDataURL = null;
+
+function bpPreviewAvatar(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    _bpAvatarDataURL = e.target.result;
+    const prev = document.getElementById('bp-av-preview');
+    const wrap  = document.getElementById('bp-av-preview-wrap');
+    if (prev) prev.src = _bpAvatarDataURL;
+    if (wrap) wrap.style.display = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+function bpUpdatePresencePreview() {
+  const status = document.getElementById('bp-status')?.value || 'online';
+  const type   = document.getElementById('bp-act-type')?.value || 'Watching';
+  const text   = document.getElementById('bp-act-text')?.value.trim() || '';
+  const statusColors = { online:'var(--green2)', idle:'#faa81a', dnd:'var(--red2)', invisible:'#747f8d' };
+  const dot = document.getElementById('bp-status-dot');
+  if (dot) dot.style.background = statusColors[status] || 'var(--green2)';
+  const prev = document.getElementById('bp-act-preview');
+  if (prev) prev.textContent = text ? `${type} ${text}` : '';
+}
+
+async function bpSaveIdentity() {
+  const username     = document.getElementById('bp-username')?.value.trim();
+  const avatarDataURL = _bpAvatarDataURL;
+  if (!username && !avatarDataURL) { toast('Nichts zu speichern.', 'err'); return; }
+  try {
+    const body = {};
+    if (username)     body.username     = username;
+    if (avatarDataURL) body.avatarDataURL = avatarDataURL;
+    const res = await api('/api/bot/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    // Update avatar display
+    if (res.avatarURL) {
+      const img = document.getElementById('bp-avatar-img');
+      if (img) img.src = res.avatarURL + '?t=' + Date.now();
+    }
+    _bpAvatarDataURL = null;
+    const wrap = document.getElementById('bp-av-preview-wrap');
+    if (wrap) wrap.style.display = 'none';
+    toast('Identität gespeichert! ✅', 'ok');
+  } catch (e) { toast('Fehler: ' + e.message, 'err'); }
+}
+
+async function bpSavePresence() {
+  const status       = document.getElementById('bp-status')?.value;
+  const activityType = document.getElementById('bp-act-type')?.value;
+  const activityText = document.getElementById('bp-act-text')?.value.trim();
+  try {
+    await api('/api/bot/presence', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, activityType, activityText }),
+    });
+    toast('Status gespeichert! ✅', 'ok');
+  } catch (e) { toast('Fehler: ' + e.message, 'err'); }
 }
 
 /* ══════════════════════════════════════════════
