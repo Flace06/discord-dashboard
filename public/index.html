@@ -923,7 +923,7 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
             <label class="toggle"><input type="checkbox" id="cmd-delete-msg" checked><span class="toggle-slider"></span></label>
           </div>
 
-          <div class="tk-sub" style="margin-bottom:10px;font-size:12px;color:var(--txt3)">Commands aktivieren / deaktivieren:</div>
+          <div class="tk-sub" style="margin-bottom:10px;font-size:12px;color:var(--txt3)">Commands konfigurieren:</div>
           <div id="cmd-mod-toggles" style="display:flex;flex-wrap:wrap;gap:10px"></div>
         </div>
 
@@ -3235,7 +3235,7 @@ async function loadCommandsPage() {
 }
 
 function renderCommandsPage() {
-  const cfg = S.commandsConfig || {};
+  const cfg     = S.commandsConfig || {};
   const modCmds = cfg.modCommands || {};
 
   // Prefix
@@ -3246,31 +3246,133 @@ function renderCommandsPage() {
   const delEl = document.getElementById('cmd-delete-msg');
   if (delEl) delEl.checked = cfg.deleteCommandMessage !== false;
 
-  // Mod command toggles
+  // Mod command cards
   const togglesEl = document.getElementById('cmd-mod-toggles');
   if (togglesEl) {
     togglesEl.innerHTML = MOD_CMD_LIST.map(c => {
-      const enabled = modCmds[c.key]?.enabled !== false;
-      return `<label style="display:flex;align-items:center;gap:8px;background:var(--bg3);border-radius:10px;padding:8px 14px;cursor:pointer;user-select:none;border:1px solid var(--border)">
-        <input type="checkbox" data-modcmd="${c.key}" ${enabled ? 'checked' : ''} style="display:none">
-        <span style="font-size:13px">${c.label}</span>
-        <span class="toggle" style="margin-left:4px"><span class="toggle-slider" style="position:relative;display:inline-block;width:34px;height:18px;background:${enabled?'var(--green2)':'var(--border2)'};border-radius:9px;transition:.2s"><span style="position:absolute;left:${enabled?'18px':'2px'};top:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:.2s"></span></span></span>
-      </label>`;
+      const mc      = modCmds[c.key] || {};
+      const enabled = mc.enabled !== false;
+      const aliases = (mc.aliases || []).join(', ');
+      const role    = mc.requireRole
+        ? ((S.roles||[]).find(r=>r.id===mc.requireRole)?.name || mc.requireRole)
+        : null;
+      return `
+        <div data-modcard="${c.key}" style="background:var(--bg3);border:1px solid ${enabled?'var(--border)':'var(--border2)'};border-radius:12px;padding:14px 16px;min-width:200px;flex:1 1 calc(50% - 8px);max-width:calc(50% - 8px);transition:.2s;opacity:${enabled?1:.6}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:14px;font-weight:600">${c.label}</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label class="toggle" style="cursor:pointer">
+                <input type="checkbox" data-modcmd="${c.key}" ${enabled?'checked':''}>
+                <span class="toggle-slider"></span>
+              </label>
+              <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="openModCmdEditor('${c.key}')">✏️</button>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--txt3);line-height:1.6">
+            ${aliases ? `Aliases: <code style="color:var(--blurple)">${esc(aliases)}</code><br>` : ''}
+            ${role    ? `Nur für: <span style="color:var(--yellow)">${esc(role)}</span><br>` : ''}
+            ${!aliases && !role ? '<span style="color:var(--txt3)">Keine extra Einstellungen</span>' : ''}
+          </div>
+        </div>`;
     }).join('');
-    // Wire up toggle visuals
+
+    // Toggle handler — update opacity + border + save checkbox
     togglesEl.querySelectorAll('input[data-modcmd]').forEach(inp => {
-      inp.parentElement.addEventListener('click', () => {
-        inp.checked = !inp.checked;
-        const slider = inp.parentElement.querySelector('.toggle-slider');
-        const dot = slider.querySelector('span');
-        if (inp.checked) { slider.style.background = 'var(--green2)'; dot.style.left = '18px'; }
-        else              { slider.style.background = 'var(--border2)'; dot.style.left = '2px'; }
+      inp.addEventListener('change', () => {
+        const card = togglesEl.querySelector(`[data-modcard="${inp.dataset.modcmd}"]`);
+        if (card) {
+          card.style.opacity       = inp.checked ? '1' : '0.6';
+          card.style.borderColor   = inp.checked ? 'var(--border)' : 'var(--border2)';
+        }
       });
     });
   }
 
   // Custom commands
   renderCustomCommandList();
+}
+
+function openModCmdEditor(key) {
+  const cfg    = S.commandsConfig || {};
+  const mc     = (cfg.modCommands || {})[key] || {};
+  const def    = MOD_CMD_LIST.find(c => c.key === key);
+  const roles  = (S.roles || []).filter(r => r.name !== '@everyone');
+
+  // Usage hint per command
+  const usageHints = {
+    ban:       '!ban [user_id] [grund] [proof]',
+    unban:     '!unban [user_id] [grund]',
+    kick:      '!kick [user_id] [grund] [proof]',
+    timeout:   '!timeout [user_id] [dauer] [grund] [proof]',
+    untimeout: '!untimeout [user_id] [grund]',
+    warn:      '!warn [user_id] [grund] [proof]',
+    purge:     '!purge [1-100] [user_id?]',
+    modlogs:   '!modlogs [user_id]',
+  };
+
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal-lg" style="width:480px">
+      <div class="modal-lg-head">
+        <h3>${def?.label || key} – Einstellungen</h3>
+        <p style="color:var(--txt3);font-size:13px;margin-top:4px">Standard-Usage: <code style="color:var(--blurple)">${esc(usageHints[key]||'')}</code></p>
+      </div>
+      <div class="modal-lg-body">
+
+        <div class="tk-row" style="margin-bottom:18px">
+          <div><div class="tk-lbl">Command aktiviert</div></div>
+          <label class="toggle"><input type="checkbox" id="mce-enabled" ${mc.enabled!==false?'checked':''}><span class="toggle-slider"></span></label>
+        </div>
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aliases (kommagetrennt, optional)</label>
+        <input id="mce-aliases" class="modal-input" placeholder="z.B. b, verbannen" value="${esc((mc.aliases||[]).join(', '))}" style="margin-bottom:6px;font-family:monospace">
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">Zusätzliche Trigger neben dem Standard-Command</div>
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Nur für Rolle (optional)</label>
+        <select id="mce-role" class="modal-input" style="cursor:pointer;margin-bottom:6px">
+          <option value="">Alle mit Berechtigung</option>
+          ${roles.map(r=>`<option value="${r.id}" ${mc.requireRole===r.id?'selected':''}>${esc(r.name)}</option>`).join('')}
+        </select>
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">Nur Mitglieder mit dieser Rolle können den Command nutzen</div>
+
+        ${key !== 'modlogs' && key !== 'purge' ? `
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Erfolgs-Nachricht (optional)</label>
+        <input id="mce-successmsg" class="modal-input" placeholder="Standard: automatisch" value="${esc(mc.successMsg||'')}" style="margin-bottom:6px">
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">Platzhalter: <code>{user}</code> {moderator} {reason} {case}</div>
+        ` : ''}
+
+      </div>
+      <div class="modal-lg-foot">
+        <button class="btn btn-ghost" id="mce-cancel">Abbrechen</button>
+        <button class="btn btn-primary" id="mce-save">💾 Speichern</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(bg);
+  bg.querySelector('#mce-cancel').onclick = () => bg.remove();
+  bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+
+  bg.querySelector('#mce-save').onclick = () => {
+    if (!S.commandsConfig) S.commandsConfig = {};
+    if (!S.commandsConfig.modCommands) S.commandsConfig.modCommands = {};
+
+    const aliasRaw = bg.querySelector('#mce-aliases').value.trim();
+    S.commandsConfig.modCommands[key] = {
+      enabled:    bg.querySelector('#mce-enabled').checked,
+      aliases:    aliasRaw ? aliasRaw.split(',').map(a=>a.trim()).filter(Boolean) : [],
+      requireRole:bg.querySelector('#mce-role').value || null,
+      successMsg: bg.querySelector('#mce-successmsg')?.value.trim() || '',
+    };
+
+    // Sync checkbox in the card
+    const cardCb = document.querySelector(`input[data-modcmd="${key}"]`);
+    if (cardCb) cardCb.checked = S.commandsConfig.modCommands[key].enabled;
+
+    renderCommandsPage();
+    bg.remove();
+    toast('Gespeichert – klicke "💾 Speichern" um zu übernehmen.', 'ok');
+  };
 }
 
 function renderCustomCommandList() {

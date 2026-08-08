@@ -593,11 +593,20 @@ async function handleModCommand(msg) {
   const command = parts[0].toLowerCase();
   const args    = parts.slice(1); // everything after command name
 
-  const MOD_COMMANDS = ['ban','unban','kick','timeout','mute','untimeout','unmute','warn','modlogs','purge','clear'];
-  if (!MOD_COMMANDS.includes(command)) return;
+  // Build full command list including aliases from config
+  const BASE_COMMANDS = ['ban','unban','kick','timeout','mute','untimeout','unmute','warn','modlogs','purge','clear'];
+  // Map alias → canonical command key
+  const aliasMap = { mute: 'timeout', unmute: 'untimeout', clear: 'purge' };
+  for (const [key, mc] of Object.entries(modCmds)) {
+    for (const alias of (mc.aliases || [])) {
+      aliasMap[alias.toLowerCase()] = key;
+    }
+  }
+  const canonicalCmd = aliasMap[command] || command;
+  if (!BASE_COMMANDS.includes(canonicalCmd) && !Object.values(aliasMap).includes(canonicalCmd)) return;
+  if (!BASE_COMMANDS.includes(canonicalCmd)) return;
 
   // Check if this specific command is enabled (default: true)
-  const canonicalCmd = command === 'mute' ? 'timeout' : command === 'unmute' ? 'untimeout' : command === 'clear' ? 'purge' : command;
   if (modCmds[canonicalCmd]?.enabled === false) return;
 
   // Permission check — must have ModerateMembers or BanMembers
@@ -609,11 +618,17 @@ async function handleModCommand(msg) {
     return msg.reply({ content: '❌ Du hast keine Berechtigung für Mod-Commands.' });
   }
 
+  // Check requireRole if configured
+  const reqRole = modCmds[canonicalCmd]?.requireRole;
+  if (reqRole && !member.roles.cache.has(reqRole)) {
+    return msg.reply({ content: '❌ Du hast nicht die erforderliche Rolle für diesen Command.' });
+  }
+
   // Delete the command message
   if (deleteOnUse) msg.delete().catch(() => {});
 
   // ── !modlogs [user_id] ────────────────────────────────────
-  if (command === 'modlogs') {
+  if (canonicalCmd === 'modlogs') {
     const targetId = args[0];
     if (!targetId) return msg.reply({ content: '❌ Usage: `!modlogs [user_id]`' });
 
@@ -646,7 +661,7 @@ async function handleModCommand(msg) {
   try { targetUser = await client.users.fetch(targetId); } catch {}
 
   // ── !ban ─────────────────────────────────────────────────
-  if (command === 'ban') {
+  if (canonicalCmd === 'ban') {
     if (!member.permissions.has(PermissionFlagsBits.BanMembers))
       return msg.reply({ content: '❌ Du benötigst die `BAN_MEMBERS` Berechtigung.' });
 
@@ -666,7 +681,7 @@ async function handleModCommand(msg) {
   }
 
   // ── !unban ───────────────────────────────────────────────
-  else if (command === 'unban') {
+  else if (canonicalCmd === 'unban') {
     if (!member.permissions.has(PermissionFlagsBits.BanMembers))
       return msg.reply({ content: '❌ Du benötigst die `BAN_MEMBERS` Berechtigung.' });
 
@@ -684,7 +699,7 @@ async function handleModCommand(msg) {
   }
 
   // ── !kick ────────────────────────────────────────────────
-  else if (command === 'kick') {
+  else if (canonicalCmd === 'kick') {
     if (!member.permissions.has(PermissionFlagsBits.KickMembers))
       return msg.reply({ content: '❌ Du benötigst die `KICK_MEMBERS` Berechtigung.' });
 
@@ -705,7 +720,7 @@ async function handleModCommand(msg) {
   }
 
   // ── !timeout / !mute ─────────────────────────────────────
-  else if (command === 'timeout' || command === 'mute') {
+  else if (canonicalCmd === 'timeout') {
     if (!member.permissions.has(PermissionFlagsBits.ModerateMembers))
       return msg.reply({ content: '❌ Du benötigst die `MODERATE_MEMBERS` Berechtigung.' });
 
@@ -732,7 +747,7 @@ async function handleModCommand(msg) {
   }
 
   // ── !untimeout / !unmute ─────────────────────────────────
-  else if (command === 'untimeout' || command === 'unmute') {
+  else if (canonicalCmd === 'untimeout') {
     if (!member.permissions.has(PermissionFlagsBits.ModerateMembers))
       return msg.reply({ content: '❌ Du benötigst die `MODERATE_MEMBERS` Berechtigung.' });
 
@@ -751,7 +766,7 @@ async function handleModCommand(msg) {
   }
 
   // ── !warn ────────────────────────────────────────────────
-  else if (command === 'warn') {
+  else if (canonicalCmd === 'warn') {
     const { proof, argsWithoutProof: warnArgs } = getProof(msg, args, 1);
     const reason = warnArgs.slice(1).join(' ');
     if (!reason) return msg.reply({ content: `❌ Usage: \`${prefix}warn [user_id] [reason]\`` });
@@ -779,7 +794,7 @@ async function handleModCommand(msg) {
   }
 
   // ── !purge / !clear [anzahl] [user_id?] ──────────────────
-  else if (command === 'purge' || command === 'clear') {
+  else if (canonicalCmd === 'purge') {
     if (!member.permissions.has(PermissionFlagsBits.ManageMessages))
       return msg.channel.send({ content: '❌ Du benötigst die `MANAGE_MESSAGES` Berechtigung.' }).then(m => setTimeout(() => m.delete().catch(()=>{}), 5000));
 
