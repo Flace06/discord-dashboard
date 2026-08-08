@@ -3549,9 +3549,11 @@ async function saveCommandsConfig() {
   S.commandsConfig.prefix            = (document.getElementById('cmd-prefix')?.value || '!').trim() || '!';
   S.commandsConfig.deleteCommandMessage = document.getElementById('cmd-delete-msg')?.checked !== false;
 
+  const existingModCmds = S.commandsConfig.modCommands || {};
   const modCmds = {};
   document.querySelectorAll('input[data-modcmd]').forEach(inp => {
-    modCmds[inp.dataset.modcmd] = { enabled: inp.checked };
+    const key = inp.dataset.modcmd;
+    modCmds[key] = { ...(existingModCmds[key] || {}), enabled: inp.checked };
   });
   if (Object.keys(modCmds).length) S.commandsConfig.modCommands = modCmds;
 
