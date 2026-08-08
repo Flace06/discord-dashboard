@@ -3284,6 +3284,9 @@ async function loadCommandsPage() {
   if (!S.roles) {
     try { S.roles = await api(`/api/guilds/${S.guild.id}/roles`); } catch {}
   }
+  if (!S.channels) {
+    try { S.channels = await api(`/api/guilds/${S.guild.id}/channels`); } catch {}
+  }
   try {
     S.commandsConfig = await api(`/api/guilds/${S.guild.id}/commands-config`);
   } catch {
