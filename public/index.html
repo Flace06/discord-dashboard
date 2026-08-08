@@ -736,7 +736,7 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
         <h1>🤖 Bot-Profil</h1>
         <p>Profilbild, Name und Online-Status des Bots anpassen</p>
       </div>
-      <div id="bp-body"><div class="loading"><div class="spin"></div> Laden…</div></div>
+      <div id="bp-body" class="pg-body"><div class="loading"><div class="spin"></div> Laden…</div></div>
     </div>
 
     <!-- MESSAGES -->
@@ -2521,139 +2521,147 @@ function renderBotProfilePage() {
   const pr = p.presence    || {};
   const bs = S.botSettings || {};
   const dm = bs.dmMessages || {};
+  const isStream = pr.activityType === 'Streaming';
 
-  const statusOpts  = [
-    { v:'online',    label:'🟢 Online' },
-    { v:'idle',      label:'🟡 Abwesend' },
-    { v:'dnd',       label:'🔴 Nicht stören' },
-    { v:'invisible', label:'⚫ Unsichtbar' },
-  ];
-  const actTypeOpts = ['Playing','Watching','Listening','Streaming','Competing','Custom'];
-  const isStream    = pr.activityType === 'Streaming';
+  /* ── Pre-build dynamic parts as plain strings (no nested template literals) ── */
+  const discrimSuffix = (p.discriminator && p.discriminator !== '0')
+    ? '<span style="color:var(--txt3)">#' + esc(p.discriminator) + '</span>' : '';
 
-  document.getElementById('bp-body').innerHTML = `
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:920px">
+  const statusSelOpts =
+    [['online','🟢 Online'],['idle','🟡 Abwesend'],['dnd','🔴 Nicht stören'],['invisible','⚫ Unsichtbar']]
+    .map(([v, label]) => '<option value="' + v + '"' + (pr.status === v ? ' selected' : '') + '>' + label + '</option>')
+    .join('');
 
-    <!-- ── Col 1 ── -->
-    <div>
+  const actTypeSelOpts =
+    ['Playing','Watching','Listening','Streaming','Competing','Custom']
+    .map(t => '<option value="' + t + '"' + (pr.activityType === t ? ' selected' : '') + '>' + t + '</option>')
+    .join('');
 
-      <!-- Identity -->
-      <div class="tk-sec" style="margin-bottom:20px">
-        <div class="tk-sec-title">Identität</div>
-        <div style="display:flex;align-items:center;gap:18px;margin-bottom:20px">
-          <div style="position:relative;cursor:pointer" onclick="document.getElementById('bp-av-input').click()">
-            <img id="bp-avatar-img" src="${esc(p.avatarURL || '')}" alt="Avatar"
-              style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--border)">
-            <div style="position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;opacity:0;transition:.2s;font-size:22px"
-              onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0">✏️</div>
-          </div>
-          <div>
-            <div style="font-size:14px;font-weight:600;color:var(--txt);margin-bottom:4px">${esc(p.username || '')}${p.discriminator && p.discriminator !== '0' ? '<span style="color:var(--txt3)">#' + esc(p.discriminator) + '</span>' : ''}</div>
-            <div style="font-size:12px;color:var(--txt3);margin-bottom:8px">ID: ${esc(p.id || '')}</div>
-            <button class="btn" style="padding:4px 14px;font-size:12px" onclick="document.getElementById('bp-av-input').click()">📷 Bild ändern</button>
-          </div>
-        </div>
-        <input type="file" id="bp-av-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="bpPreviewAvatar(this)">
-        <div id="bp-av-preview-wrap" style="display:none;margin-bottom:14px">
-          <img id="bp-av-preview" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid var(--blurple)">
-          <span style="font-size:12px;color:var(--txt3);margin-left:10px">Neues Bild (noch nicht gespeichert)</span>
-        </div>
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Benutzername</label>
-        <input id="bp-username" class="modal-input" value="${esc(p.username || '')}" placeholder="Bot-Name" style="margin-bottom:6px">
-        <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">⚠️ Discord erlaubt max. 2 Namensänderungen pro Stunde.</div>
-        <button class="btn btn-primary" style="width:100%" onclick="bpSaveIdentity()">💾 Identität speichern</button>
-      </div>
+  const dmDefaults = {
+    ban:     'Du wurdest vom Server {server} gebannt.\nGrund: {reason}',
+    kick:    'Du wurdest vom Server {server} gekickt.\nGrund: {reason}',
+    timeout: 'Du wurdest auf dem Server {server} getimeouted.\nGrund: {reason}\nDauer: {duration}',
+    warn:    'Du hast auf dem Server {server} eine Verwarnung erhalten.\nGrund: {reason}',
+  };
+  const dmLabels = { ban:'Ban-Nachricht', kick:'Kick-Nachricht', timeout:'Timeout-Nachricht', warn:'Warn-Nachricht' };
+  const dmRows = ['ban','kick','timeout','warn'].map(k =>
+    '<label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">' + dmLabels[k] + '</label>' +
+    '<textarea id="bp-dm-' + k + '" class="modal-input" rows="2" style="margin-bottom:10px;resize:vertical;font-size:12px">' +
+      esc(dm[k] || dmDefaults[k]) +
+    '</textarea>'
+  ).join('');
 
-      <!-- Server Bot-Einstellungen -->
-      <div class="tk-sec">
-        <div class="tk-sec-title">Server-Konfiguration</div>
+  /* ── Render ── */
+  document.getElementById('bp-body').innerHTML =
+  '<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:960px">' +
 
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Befehlsprefix</label>
-        <input id="bp-prefix" class="modal-input" value="${esc(bs.prefix || '!')}" placeholder="!" maxlength="5" style="margin-bottom:16px;width:80px">
+    /* ── Col 1 ── */
+    '<div>' +
 
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Standard-Embed-Farbe</label>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-          <input id="bp-defcolor" type="color" value="${esc(bs.defaultColor || '#5865f2')}"
-            style="width:50px;height:36px;border-radius:6px;border:1px solid var(--border);cursor:pointer">
-          <span style="font-size:12px;color:var(--txt3)">Wird als Standard für Bot-Embeds verwendet</span>
-        </div>
+      /* Identity */
+      '<div class="tk-sec" style="margin-bottom:20px">' +
+        '<div class="tk-sec-title">Identität</div>' +
+        '<div style="display:flex;align-items:center;gap:18px;margin-bottom:20px">' +
+          '<div style="position:relative;cursor:pointer" onclick="document.getElementById(\'bp-av-input\').click()">' +
+            '<img id="bp-avatar-img" src="' + esc(p.avatarURL || '') + '" alt="Avatar" ' +
+              'style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--border)">' +
+            '<div style="position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;opacity:0;transition:.2s;font-size:22px" ' +
+              'onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0">✏️</div>' +
+          '</div>' +
+          '<div>' +
+            '<div style="font-size:14px;font-weight:600;color:var(--txt);margin-bottom:4px">' + esc(p.username || '') + discrimSuffix + '</div>' +
+            '<div style="font-size:12px;color:var(--txt3);margin-bottom:8px">ID: ' + esc(p.id || '') + '</div>' +
+            '<button class="btn" style="padding:4px 14px;font-size:12px" onclick="document.getElementById(\'bp-av-input\').click()">📷 Bild ändern</button>' +
+          '</div>' +
+        '</div>' +
+        '<input type="file" id="bp-av-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="bpPreviewAvatar(this)">' +
+        '<div id="bp-av-preview-wrap" style="display:none;margin-bottom:14px;align-items:center;gap:10px">' +
+          '<img id="bp-av-preview" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid var(--blurple)">' +
+          '<span style="font-size:12px;color:var(--txt3)">Neues Bild (noch nicht gespeichert)</span>' +
+        '</div>' +
+        '<label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Benutzername</label>' +
+        '<input id="bp-username" class="modal-input" value="' + esc(p.username || '') + '" placeholder="Bot-Name" style="margin-bottom:6px">' +
+        '<div style="font-size:11px;color:var(--txt3);margin-bottom:16px">⚠️ Discord erlaubt max. 2 Namensänderungen pro Stunde.</div>' +
+        '<button class="btn btn-primary" style="width:100%" onclick="bpSaveIdentity()">💾 Identität speichern</button>' +
+      '</div>' +
 
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div>
-            <div style="font-size:13px;font-weight:600;color:var(--txt)">DM bei Moderation</div>
-            <div style="font-size:11px;color:var(--txt3)">User bei Ban/Kick/Timeout anschreiben</div>
-          </div>
-          <label class="toggle-wrap">
-            <input type="checkbox" id="bp-dmon" ${bs.dmOnModeration ? 'checked' : ''} onchange="bpToggleDmSection()">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
+      /* Server settings */
+      '<div class="tk-sec">' +
+        '<div class="tk-sec-title">Server-Konfiguration</div>' +
+        '<label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Befehlsprefix</label>' +
+        '<input id="bp-prefix" class="modal-input" value="' + esc(bs.prefix || '!') + '" placeholder="!" maxlength="5" style="margin-bottom:16px;width:80px">' +
+        '<label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Standard-Embed-Farbe</label>' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">' +
+          '<input id="bp-defcolor" type="color" value="' + esc(bs.defaultColor || '#5865f2') + '" ' +
+            'style="width:50px;height:36px;border-radius:6px;border:1px solid var(--border);cursor:pointer">' +
+          '<span style="font-size:12px;color:var(--txt3)">Wird als Standard für Bot-Embeds verwendet</span>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+          '<div>' +
+            '<div style="font-size:13px;font-weight:600;color:var(--txt)">DM bei Moderation</div>' +
+            '<div style="font-size:11px;color:var(--txt3)">User bei Ban/Kick/Timeout anschreiben</div>' +
+          '</div>' +
+          '<label class="toggle-wrap">' +
+            '<input type="checkbox" id="bp-dmon"' + (bs.dmOnModeration ? ' checked' : '') + ' onchange="bpToggleDmSection()">' +
+            '<span class="toggle-slider"></span>' +
+          '</label>' +
+        '</div>' +
+        '<div id="bp-dm-section"' + (bs.dmOnModeration ? '' : ' style="display:none"') + '>' +
+          '<div style="font-size:11px;color:var(--txt3);margin-bottom:10px">' +
+            'Platzhalter: <code>{server}</code> <code>{reason}</code> <code>{duration}</code> <code>{moderator}</code>' +
+          '</div>' +
+          dmRows +
+        '</div>' +
+        '<button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="bpSaveServerSettings()">💾 Server-Einstellungen speichern</button>' +
+      '</div>' +
 
-        <div id="bp-dm-section" style="${bs.dmOnModeration ? '' : 'display:none'}">
-          <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
-            Platzhalter: <code>{server}</code> <code>{reason}</code> <code>{duration}</code> <code>{moderator}</code>
-          </div>
-          ${[
-            { key:'ban',     label:'Ban-Nachricht',     def:'Du wurdest vom Server **{server}** gebannt.\nGrund: {reason}' },
-            { key:'kick',    label:'Kick-Nachricht',    def:'Du wurdest vom Server **{server}** gekickt.\nGrund: {reason}' },
-            { key:'timeout', label:'Timeout-Nachricht', def:'Du wurdest auf dem Server **{server}** getimeouted.\nGrund: {reason}\nDauer: {duration}' },
-            { key:'warn',    label:'Warn-Nachricht',    def:'Du hast auf dem Server **{server}** eine Verwarnung erhalten.\nGrund: {reason}' },
-          ].map(d => `
-          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">${d.label}</label>
-          <textarea id="bp-dm-${d.key}" class="modal-input" rows="2" style="margin-bottom:10px;resize:vertical;font-size:12px">${esc(dm[d.key] || d.def)}</textarea>`).join('')}
-        </div>
+    '</div>' + /* end col 1 */
 
-        <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="bpSaveServerSettings()">💾 Server-Einstellungen speichern</button>
-      </div>
+    /* ── Col 2 ── */
+    '<div>' +
 
-    </div>
+      '<div class="tk-sec">' +
+        '<div class="tk-sec-title">Online-Status & Aktivität</div>' +
+        '<div style="font-size:11px;color:var(--txt3);margin-bottom:12px">💡 Wird beim Neustart wiederhergestellt</div>' +
 
-    <!-- ── Col 2 ── -->
-    <div>
+        '<label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Status</label>' +
+        '<select id="bp-status" class="select-sm" style="width:100%;margin-bottom:16px" onchange="bpUpdatePresencePreview()">' +
+          statusSelOpts +
+        '</select>' +
 
-      <!-- Presence -->
-      <div class="tk-sec" style="margin-bottom:20px">
-        <div class="tk-sec-title">Online-Status & Aktivität</div>
-        <div style="font-size:11px;color:var(--txt3);margin-bottom:12px">💡 Wird beim Neustart wiederhergestellt</div>
+        '<label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Typ</label>' +
+        '<select id="bp-act-type" class="select-sm" style="width:100%;margin-bottom:16px" onchange="bpOnTypeChange()">' +
+          actTypeSelOpts +
+        '</select>' +
 
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Status</label>
-        <select id="bp-status" class="select-sm" style="width:100%;margin-bottom:16px" onchange="bpUpdatePresencePreview()">
-          ${statusOpts.map(o => `<option value="${o.v}" ${pr.status===o.v?'selected':''}>${o.label}</option>`).join('')}
-        </select>
+        '<label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Text <span style="font-weight:400">(leer = keine Aktivität)</span></label>' +
+        '<input id="bp-act-text" class="modal-input" value="' + esc(pr.activityText || '') + '" placeholder="z.B. Server Dashboard" oninput="bpUpdatePresencePreview()" style="margin-bottom:12px">' +
 
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Typ</label>
-        <select id="bp-act-type" class="select-sm" style="width:100%;margin-bottom:16px" onchange="bpOnTypeChange()">
-          ${actTypeOpts.map(t => `<option value="${t}" ${pr.activityType===t?'selected':''}>${t}</option>`).join('')}
-        </select>
+        '<div id="bp-stream-url-wrap"' + (isStream ? '' : ' style="display:none"') + '>' +
+          '<label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Stream-URL <span style="font-weight:400">(Twitch oder YouTube)</span></label>' +
+          '<input id="bp-stream-url" class="modal-input" value="' + esc(pr.streamUrl || '') + '" placeholder="https://twitch.tv/…" style="margin-bottom:12px">' +
+        '</div>' +
 
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Text <span style="font-weight:400">(leer = keine Aktivität)</span></label>
-        <input id="bp-act-text" class="modal-input" value="${esc(pr.activityText || '')}" placeholder="z.B. Server Dashboard" oninput="bpUpdatePresencePreview()" style="margin-bottom:12px">
+        '<div style="background:var(--bg3);border-radius:8px;padding:12px 14px;margin-bottom:16px">' +
+          '<div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Vorschau</div>' +
+          '<div style="display:flex;align-items:center;gap:10px">' +
+            '<div style="position:relative">' +
+              '<img src="' + esc(p.avatarURL || '') + '" style="width:36px;height:36px;border-radius:50%;object-fit:cover">' +
+              '<div id="bp-status-dot" style="position:absolute;bottom:0;right:0;width:12px;height:12px;border-radius:50%;border:2px solid var(--bg3);background:var(--green2)"></div>' +
+            '</div>' +
+            '<div>' +
+              '<div style="font-size:13px;font-weight:600;color:var(--txt)">' + esc(p.username || 'Bot') + '</div>' +
+              '<div id="bp-act-preview" style="font-size:11px;color:var(--txt3)"></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
 
-        <div id="bp-stream-url-wrap" style="${isStream ? '' : 'display:none'}">
-          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Stream-URL <span style="font-weight:400">(Twitch oder YouTube)</span></label>
-          <input id="bp-stream-url" class="modal-input" value="${esc(pr.streamUrl || '')}" placeholder="https://twitch.tv/…" style="margin-bottom:12px">
-        </div>
+        '<button class="btn btn-primary" style="width:100%" onclick="bpSavePresence()">💾 Status speichern</button>' +
+      '</div>' +
 
-        <!-- Preview -->
-        <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;margin-bottom:16px">
-          <div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Vorschau</div>
-          <div style="display:flex;align-items:center;gap:10px">
-            <div style="position:relative">
-              <img src="${esc(p.avatarURL || '')}" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
-              <div id="bp-status-dot" style="position:absolute;bottom:0;right:0;width:12px;height:12px;border-radius:50%;border:2px solid var(--bg3);background:var(--green2)"></div>
-            </div>
-            <div>
-              <div style="font-size:13px;font-weight:600;color:var(--txt)">${esc(p.username || 'Bot')}</div>
-              <div id="bp-act-preview" style="font-size:11px;color:var(--txt3)"></div>
-            </div>
-          </div>
-        </div>
+    '</div>' + /* end col 2 */
 
-        <button class="btn btn-primary" style="width:100%" onclick="bpSavePresence()">💾 Status speichern</button>
-      </div>
-
-    </div>
-  </div>`;
+  '</div>'; /* end grid */
 
   bpUpdatePresencePreview();
 }
