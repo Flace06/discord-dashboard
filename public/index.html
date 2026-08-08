@@ -2307,13 +2307,13 @@ function renderMsgHistory() {
    SERVER LOG
 ══════════════════════════════════════════════ */
 const SL_CATEGORIES = [
-  { key: 'messages',   icon: '💬', name: 'Nachrichten',  desc: 'Gelöschte & bearbeitete Nachrichten, Massen-Löschungen' },
-  { key: 'members',    icon: '👥', name: 'Mitglieder',   desc: 'Beitritte, Abgänge, Nickname- & Rollen-Änderungen' },
-  { key: 'voice',      icon: '🔊', name: 'Voice',        desc: 'Voice-Channel beigetreten / verlassen / gewechselt' },
-  { key: 'roles',      icon: '🏷️', name: 'Rollen',       desc: 'Rollen erstellt, gelöscht oder bearbeitet' },
-  { key: 'channels',   icon: '📁', name: 'Kanäle',       desc: 'Kanäle erstellt, gelöscht oder umbenannt' },
-  { key: 'moderation', icon: '🔨', name: 'Moderation',   desc: 'Bans vergeben und aufgehoben' },
-  { key: 'server',     icon: '⚙️', name: 'Server',       desc: 'Server-Name, Icon oder Verifikationsstufe geändert' },
+  { key: 'messages',   icon: '💬', name: 'Nachrichten',  desc: 'Gelöschte & bearbeitete Nachrichten, Massen-Löschungen', filterType: 'text'  },
+  { key: 'members',    icon: '👥', name: 'Mitglieder',   desc: 'Beitritte, Abgänge, Nickname- & Rollen-Änderungen',      filterType: null    },
+  { key: 'voice',      icon: '🔊', name: 'Voice',        desc: 'Voice-Channel beigetreten / verlassen / gewechselt',     filterType: 'voice' },
+  { key: 'roles',      icon: '🏷️', name: 'Rollen',       desc: 'Rollen erstellt, gelöscht oder bearbeitet',              filterType: null    },
+  { key: 'channels',   icon: '📁', name: 'Kanäle',       desc: 'Kanäle erstellt, gelöscht oder umbenannt',               filterType: null    },
+  { key: 'moderation', icon: '🔨', name: 'Moderation',   desc: 'Bans vergeben und aufgehoben',                           filterType: null    },
+  { key: 'server',     icon: '⚙️', name: 'Server',       desc: 'Server-Name, Icon oder Verifikationsstufe geändert',     filterType: null    },
 ];
 
 async function loadServerLogPage() {
@@ -2331,26 +2331,64 @@ async function loadServerLogPage() {
 function renderServerLogPage() {
   const cfg  = S.serverLogConfig || { enabled: false, channels: {} };
   const chs  = cfg.channels || {};
+  const ign  = cfg.ignoredChannels || {};
 
   // Set global toggle
   const tog = document.getElementById('sl-enabled');
   if (tog) tog.checked = !!cfg.enabled;
 
-  // Build text channels dropdown options helper
-  const textChannels = (S.channels || [])
-    .filter(c => c.type === 0 || c.type === 5)
-    .sort((a, b) => (a.position || 0) - (b.position || 0));
+  const allChannels   = (S.channels || []).sort((a,b) => (a.position||0)-(b.position||0));
+  const textChannels  = allChannels.filter(c => c.type === 0 || c.type === 5);
+  const voiceChannels = allChannels.filter(c => c.type === 2);
 
   const catContainer = document.getElementById('sl-categories');
   if (!catContainer) return;
 
   catContainer.innerHTML = SL_CATEGORIES.map(cat => {
     const selVal = chs[cat.key] || '';
-    const opts = `<option value="">– Kein Kanal (deaktiviert) –</option>` +
+    const logOpts = `<option value="">– Kein Kanal (deaktiviert) –</option>` +
       textChannels.map(c => `<option value="${esc(c.id)}" ${selVal === c.id ? 'selected' : ''}># ${esc(c.name)}</option>`).join('');
+
+    // Ignored channels pill UI (only for categories with filterType)
+    let filterHtml = '';
+    if (cat.filterType) {
+      const srcChannels = cat.filterType === 'voice' ? voiceChannels : textChannels;
+      const ignoredIds  = ign[cat.key] || [];
+      const pills = ignoredIds.map(id => {
+        const ch = srcChannels.find(c => c.id === id);
+        const label = ch ? (cat.filterType === 'voice' ? '🔊 ' : '# ') + ch.name : id;
+        return `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:12px;color:var(--txt2)">
+          ${esc(label)}
+          <button onclick="slRemoveIgnored('${cat.key}','${id}')" style="background:none;border:none;color:var(--txt3);cursor:pointer;font-size:14px;line-height:1;padding:0 2px">×</button>
+        </span>`;
+      }).join('');
+
+      const addOpts = srcChannels
+        .filter(c => !ignoredIds.includes(c.id))
+        .map(c => `<option value="${esc(c.id)}">${cat.filterType==='voice'?'🔊 ':'# '}${esc(c.name)}</option>`)
+        .join('');
+
+      filterHtml = `
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;color:var(--txt3);margin-bottom:6px">
+            🚫 Ignorierte Kanäle — Ereignisse aus diesen Kanälen werden <strong>nicht</strong> geloggt:
+          </div>
+          <div id="sl-ignored-pills-${cat.key}" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:20px">
+            ${pills || '<span style="font-size:12px;color:var(--txt3);font-style:italic">Keine – alle Kanäle werden geloggt</span>'}
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="sl-add-ignored-${cat.key}" class="select-sm" style="flex:1">
+              <option value="">+ Kanal ignorieren…</option>
+              ${addOpts}
+            </select>
+            <button class="btn btn-ghost" style="padding:4px 12px;font-size:12px" onclick="slAddIgnored('${cat.key}')">Hinzufügen</button>
+          </div>
+        </div>`;
+    }
+
     return `
       <div class="tk-sec" style="margin-bottom:16px">
-        <div class="tk-row" style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border)">
+        <div class="tk-row" style="padding-bottom:${cat.filterType?'10':'0'}px;margin-bottom:${cat.filterType?'0':'0'}px;border-bottom:${cat.filterType?'1px solid var(--border)':'none'}">
           <div style="display:flex;align-items:center;gap:12px">
             <span style="font-size:22px">${cat.icon}</span>
             <div>
@@ -2360,11 +2398,30 @@ function renderServerLogPage() {
           </div>
           <div style="display:flex;align-items:center;gap:10px">
             <span style="font-size:12px;color:var(--txt3)">Log-Kanal:</span>
-            <select class="select-sm sl-channel-sel" data-cat="${cat.key}" style="width:200px">${opts}</select>
+            <select class="select-sm sl-channel-sel" data-cat="${cat.key}" style="width:200px">${logOpts}</select>
           </div>
         </div>
+        ${filterHtml}
       </div>`;
   }).join('');
+}
+
+function slAddIgnored(catKey) {
+  const sel = document.getElementById(`sl-add-ignored-${catKey}`);
+  if (!sel?.value) return;
+  if (!S.serverLogConfig) S.serverLogConfig = {};
+  if (!S.serverLogConfig.ignoredChannels) S.serverLogConfig.ignoredChannels = {};
+  if (!S.serverLogConfig.ignoredChannels[catKey]) S.serverLogConfig.ignoredChannels[catKey] = [];
+  if (!S.serverLogConfig.ignoredChannels[catKey].includes(sel.value)) {
+    S.serverLogConfig.ignoredChannels[catKey].push(sel.value);
+  }
+  renderServerLogPage();
+}
+
+function slRemoveIgnored(catKey, channelId) {
+  if (!S.serverLogConfig?.ignoredChannels?.[catKey]) return;
+  S.serverLogConfig.ignoredChannels[catKey] = S.serverLogConfig.ignoredChannels[catKey].filter(id => id !== channelId);
+  renderServerLogPage();
 }
 
 async function saveServerLogConfig() {
@@ -2373,11 +2430,12 @@ async function saveServerLogConfig() {
   document.querySelectorAll('.sl-channel-sel').forEach(sel => {
     channels[sel.dataset.cat] = sel.value || null;
   });
+  const ignoredChannels = S.serverLogConfig?.ignoredChannels || {};
   try {
     S.serverLogConfig = await api(`/api/guilds/${S.guild.id}/serverlog-config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled, channels }),
+      body: JSON.stringify({ enabled, channels, ignoredChannels }),
     });
     toast('Server-Log gespeichert!', 'ok');
   } catch (e) {

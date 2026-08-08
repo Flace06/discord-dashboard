@@ -136,13 +136,21 @@ client.on('guildMemberAdd', async member => {
 //  SERVER LOG SYSTEM
 // ════════════════════════════════════════════════════════════
 
-async function sendLog(guildId, category, embed) {
+// sourceChannelId: Discord-Kanal in dem das Ereignis passiert ist (optional, für Filter)
+async function sendLog(guildId, category, embed, sourceChannelId = null) {
   try {
     const guildCfg = cfg.getGuild(guildId);
     const logCfg   = guildCfg.serverLog;
     if (!logCfg?.enabled) return;
     const channelId = logCfg.channels?.[category];
     if (!channelId) return;
+
+    // Ignorierte Kanäle prüfen
+    if (sourceChannelId) {
+      const ignored = logCfg.ignoredChannels?.[category] || [];
+      if (ignored.includes(sourceChannelId)) return;
+    }
+
     const ch = await client.channels.fetch(channelId).catch(() => null);
     if (ch) await ch.send({ embeds: [embed] });
   } catch {}
@@ -160,7 +168,7 @@ client.on('messageDelete', async msg => {
       { name: 'Inhalt', value: msg.content ? msg.content.slice(0, 1024) || '*Leer*' : '*Nicht im Cache*' },
     )
     .setTimestamp();
-  await sendLog(msg.guild.id, 'messages', embed);
+  await sendLog(msg.guild.id, 'messages', embed, msg.channel.id);
 });
 
 client.on('messageUpdate', async (oldMsg, newMsg) => {
@@ -176,7 +184,7 @@ client.on('messageUpdate', async (oldMsg, newMsg) => {
       { name: 'Nachher', value: (newMsg.content || '*Leer*').slice(0, 512) },
     )
     .setTimestamp();
-  await sendLog(newMsg.guild.id, 'messages', embed);
+  await sendLog(newMsg.guild.id, 'messages', embed, newMsg.channel.id);
 });
 
 client.on('messageDeleteBulk', async (msgs, channel) => {
@@ -189,7 +197,7 @@ client.on('messageDeleteBulk', async (msgs, channel) => {
       { name: 'Anzahl',  value: `${msgs.size} Nachrichten`, inline: true },
     )
     .setTimestamp();
-  await sendLog(channel.guild.id, 'messages', embed);
+  await sendLog(channel.guild.id, 'messages', embed, channel.id);
 });
 
 // ── Members ───────────────────────────────────────────────────
@@ -295,8 +303,9 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     return; // Ignore self-mute/deafen etc.
   }
 
+  const sourceVoiceCh = newState.channel?.id || oldState.channel?.id || null;
   const embed = new EmbedBuilder().setTitle(title).setColor(color).addFields(fields).setTimestamp();
-  await sendLog(guildId, 'voice', embed);
+  await sendLog(guildId, 'voice', embed, sourceVoiceCh);
 });
 
 // ── Roles ─────────────────────────────────────────────────────
