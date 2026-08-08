@@ -2494,15 +2494,25 @@ async function loadBotProfilePage() {
   const el = document.getElementById('bp-body');
   el.innerHTML = '<div class="loading"><div class="spin"></div> Laden…</div>';
   try {
-    const [profile, botCfg] = await Promise.all([
+    const [profileRes, botCfgRes] = await Promise.allSettled([
       api('/api/bot/profile'),
       api(`/api/guilds/${S.guild.id}/bot-settings`),
     ]);
-    S.botProfile   = profile;
-    S.botSettings  = botCfg;
+
+    if (profileRes.status === 'rejected') {
+      el.innerHTML = errHtml('Bot-Profil konnte nicht geladen werden: ' + (profileRes.reason?.message || 'Unbekannter Fehler'));
+      return;
+    }
+
+    S.botProfile  = profileRes.value;
+    // botSettings may not exist yet if running older server — use defaults
+    S.botSettings = botCfgRes.status === 'fulfilled' ? botCfgRes.value : {
+      prefix: '!', defaultColor: '#5865f2', dmOnModeration: false,
+      dmMessages: { ban:'', kick:'', timeout:'', warn:'' },
+    };
     renderBotProfilePage();
   } catch (e) {
-    el.innerHTML = errHtml('Bot-Profil konnte nicht geladen werden.');
+    el.innerHTML = errHtml('Unerwarteter Fehler: ' + e.message);
   }
 }
 
