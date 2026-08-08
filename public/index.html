@@ -593,6 +593,7 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
 
       <div class="nav-label">Bot</div>
       <div class="nav-item" data-page="messages"><span class="ni">✉️</span> Nachricht schreiben</div>
+      <div class="nav-item" data-page="commands"><span class="ni">⚡</span> Commands</div>
 
       <div class="nav-label">Ticket-System</div>
       <div class="nav-item" data-page="tickets"><span class="ni">🎫</span> Tickets</div>
@@ -891,6 +892,55 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
       </div>
     </div>
 
+    <!-- COMMANDS -->
+    <div id="page-commands" class="hidden">
+      <div class="pg-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <h1>⚡ Commands</h1>
+          <p>Mod-Commands konfigurieren und eigene Commands erstellen</p>
+        </div>
+        <button class="btn btn-primary" onclick="saveCommandsConfig()">💾 Speichern</button>
+      </div>
+      <div class="pg-body">
+
+        <!-- Mod Commands -->
+        <div class="tk-sec" style="max-width:780px;margin-bottom:24px">
+          <div class="tk-sec-title">🛡️ Mod-Commands</div>
+
+          <div class="tk-row" style="margin-bottom:14px">
+            <div>
+              <div class="tk-lbl">Präfix</div>
+              <div class="tk-sub">Zeichen das vor jedem Command steht (Standard: !)</div>
+            </div>
+            <input id="cmd-prefix" class="modal-input" style="width:80px;text-align:center;font-size:18px;font-weight:700" maxlength="5" placeholder="!">
+          </div>
+
+          <div class="tk-row" style="margin-bottom:18px">
+            <div>
+              <div class="tk-lbl">Command-Nachricht löschen</div>
+              <div class="tk-sub">Löscht die Nachricht des Moderators nach Ausführung</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="cmd-delete-msg" checked><span class="toggle-slider"></span></label>
+          </div>
+
+          <div class="tk-sub" style="margin-bottom:10px;font-size:12px;color:var(--txt3)">Commands aktivieren / deaktivieren:</div>
+          <div id="cmd-mod-toggles" style="display:flex;flex-wrap:wrap;gap:10px"></div>
+        </div>
+
+        <!-- Custom Commands -->
+        <div class="tk-sec" style="max-width:780px">
+          <div class="tk-sec-title" style="display:flex;align-items:center;justify-content:space-between">
+            <span>📝 Eigene Commands</span>
+            <button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="openCommandEditor(null)">+ Hinzufügen</button>
+          </div>
+          <div id="cmd-custom-list">
+            <div class="loading"><div class="spin"></div> Laden…</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- TICKETS -->
     <div id="page-tickets" class="hidden">
       <div class="pg-header">
@@ -1098,6 +1148,7 @@ document.getElementById('back-to-servers').addEventListener('click', () => {
   S.ticketConfig = null; S.tickets = null;
   S.autoroleConfig   = null;
   S.serverLogConfig  = null;
+  S.commandsConfig   = null;
   MSG_HISTORY.length = 0;
 });
 
@@ -1200,6 +1251,7 @@ async function loadPage(page) {
   else if (page === 'tickets')   loadTicketsPage();
   else if (page === 'autorole')   loadAutorolePage();
   else if (page === 'serverlog')  loadServerLogPage();
+  else if (page === 'commands')   loadCommandsPage();
 }
 
 /* ─── OVERVIEW ─────────────────────────────── */
@@ -3154,6 +3206,229 @@ async function forceCloseTicket(channelId) {
 
 /* ─── START ─────────────────────────────────── */
 init().catch(console.error);
+
+/* ══════════════════════════════════════════════
+   COMMANDS PAGE
+══════════════════════════════════════════════ */
+
+const MOD_CMD_LIST = [
+  { key: 'ban',      label: '🔨 Ban' },
+  { key: 'unban',    label: '✅ Unban' },
+  { key: 'kick',     label: '👢 Kick' },
+  { key: 'timeout',  label: '⏱️ Timeout/Mute' },
+  { key: 'untimeout',label: '🔓 Untimeout/Unmute' },
+  { key: 'warn',     label: '⚠️ Warn' },
+  { key: 'modlogs',  label: '📋 Modlogs' },
+];
+
+async function loadCommandsPage() {
+  if (!S.roles) {
+    try { S.roles = await api(`/api/guilds/${S.guild.id}/roles`); } catch {}
+  }
+  try {
+    S.commandsConfig = await api(`/api/guilds/${S.guild.id}/commands-config`);
+  } catch {
+    S.commandsConfig = {};
+  }
+  renderCommandsPage();
+}
+
+function renderCommandsPage() {
+  const cfg = S.commandsConfig || {};
+  const modCmds = cfg.modCommands || {};
+
+  // Prefix
+  const prefixEl = document.getElementById('cmd-prefix');
+  if (prefixEl) prefixEl.value = cfg.prefix || '!';
+
+  // Delete toggle
+  const delEl = document.getElementById('cmd-delete-msg');
+  if (delEl) delEl.checked = cfg.deleteCommandMessage !== false;
+
+  // Mod command toggles
+  const togglesEl = document.getElementById('cmd-mod-toggles');
+  if (togglesEl) {
+    togglesEl.innerHTML = MOD_CMD_LIST.map(c => {
+      const enabled = modCmds[c.key]?.enabled !== false;
+      return `<label style="display:flex;align-items:center;gap:8px;background:var(--bg3);border-radius:10px;padding:8px 14px;cursor:pointer;user-select:none;border:1px solid var(--border)">
+        <input type="checkbox" data-modcmd="${c.key}" ${enabled ? 'checked' : ''} style="display:none">
+        <span style="font-size:13px">${c.label}</span>
+        <span class="toggle" style="margin-left:4px"><span class="toggle-slider" style="position:relative;display:inline-block;width:34px;height:18px;background:${enabled?'var(--green2)':'var(--border2)'};border-radius:9px;transition:.2s"><span style="position:absolute;left:${enabled?'18px':'2px'};top:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:.2s"></span></span></span>
+      </label>`;
+    }).join('');
+    // Wire up toggle visuals
+    togglesEl.querySelectorAll('input[data-modcmd]').forEach(inp => {
+      inp.parentElement.addEventListener('click', () => {
+        inp.checked = !inp.checked;
+        const slider = inp.parentElement.querySelector('.toggle-slider');
+        const dot = slider.querySelector('span');
+        if (inp.checked) { slider.style.background = 'var(--green2)'; dot.style.left = '18px'; }
+        else              { slider.style.background = 'var(--border2)'; dot.style.left = '2px'; }
+      });
+    });
+  }
+
+  // Custom commands
+  renderCustomCommandList();
+}
+
+function renderCustomCommandList() {
+  const cfg = S.commandsConfig || {};
+  const list = cfg.customCommands || [];
+  const el   = document.getElementById('cmd-custom-list');
+  if (!el) return;
+
+  if (!list.length) {
+    el.innerHTML = `<div class="empty" style="padding:30px 0"><div class="eic">⚡</div><p>Noch keine eigenen Commands. Klicke auf "+ Hinzufügen".</p></div>`;
+    return;
+  }
+
+  el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="color:var(--txt3);text-align:left;border-bottom:1px solid var(--border)">
+      <th style="padding:8px 10px">Trigger</th>
+      <th style="padding:8px 10px">Antwort</th>
+      <th style="padding:8px 10px;width:40px">Embed</th>
+      <th style="padding:8px 10px;width:40px">Löschen</th>
+      <th style="padding:8px 10px;width:80px"></th>
+    </tr></thead>
+    <tbody>${list.map(cmd => `
+      <tr style="border-bottom:1px solid var(--border);vertical-align:middle">
+        <td style="padding:10px"><code style="background:var(--bg3);padding:3px 8px;border-radius:6px;color:var(--blurple)">${esc(cmd.trigger)}</code></td>
+        <td style="padding:10px;color:var(--txt2);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((cmd.response||'').slice(0,80))}</td>
+        <td style="padding:10px;text-align:center">${cmd.embedMode ? '✅' : '—'}</td>
+        <td style="padding:10px;text-align:center">${cmd.deleteMessage !== false ? '✅' : '—'}</td>
+        <td style="padding:10px;display:flex;gap:6px">
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="openCommandEditor('${esc(cmd.id)}')">✏️</button>
+          <button class="btn" style="padding:4px 10px;font-size:12px;background:var(--red2)" onclick="deleteCustomCommand('${esc(cmd.id)}')">🗑️</button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+
+function openCommandEditor(cmdId) {
+  const cfg    = S.commandsConfig || {};
+  const list   = cfg.customCommands || [];
+  const cmd    = cmdId ? list.find(c => c.id === cmdId) : null;
+  const isNew  = !cmd;
+  const roles  = (S.roles || []).filter(r => r.name !== '@everyone');
+
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `
+    <div class="modal-lg" style="width:520px;max-height:90vh">
+      <div class="modal-lg-head">
+        <h3>${isNew ? '⚡ Neuer Command' : '✏️ Command bearbeiten'}</h3>
+      </div>
+      <div class="modal-lg-body">
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Trigger (z.B. !rules)</label>
+        <input id="ce-trigger" class="modal-input" placeholder="!rules" value="${esc(cmd?.trigger||'')}" style="margin-bottom:14px;font-family:monospace">
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Antwort des Bots</label>
+        <textarea id="ce-response" class="modal-input" rows="4" placeholder="Hier sind unsere Server-Regeln…" style="resize:vertical;margin-bottom:14px">${esc(cmd?.response||'')}</textarea>
+
+        <div style="display:flex;gap:20px;margin-bottom:14px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="ce-embed" ${cmd?.embedMode ? 'checked':''}>
+            Als Embed senden
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="ce-delete" ${cmd?.deleteMessage !== false ? 'checked':''}>
+            Command-Nachricht löschen
+          </label>
+        </div>
+
+        <div id="ce-embed-fields" style="${cmd?.embedMode ? '':'display:none'}">
+          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Embed-Titel (optional)</label>
+          <input id="ce-embed-title" class="modal-input" placeholder="Titel…" value="${esc(cmd?.embedTitle||'')}" style="margin-bottom:10px">
+          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Embed-Farbe</label>
+          <input id="ce-embed-color" type="color" value="${cmd?.embedColor||'#5865f2'}" style="height:36px;border-radius:8px;border:1px solid var(--border);background:transparent;cursor:pointer;margin-bottom:14px">
+        </div>
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Nur für Rolle (optional)</label>
+        <select id="ce-role" class="modal-input" style="cursor:pointer;margin-bottom:4px">
+          <option value="">Alle Mitglieder</option>
+          ${roles.map(r => `<option value="${r.id}" ${cmd?.requireRole===r.id?'selected':''}>${esc(r.name)}</option>`).join('')}
+        </select>
+
+      </div>
+      <div class="modal-lg-foot">
+        <button class="btn btn-ghost" id="ce-cancel">Abbrechen</button>
+        <button class="btn btn-primary" id="ce-save">💾 Speichern</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(bg);
+
+  // Toggle embed fields
+  bg.querySelector('#ce-embed').addEventListener('change', e => {
+    bg.querySelector('#ce-embed-fields').style.display = e.target.checked ? '' : 'none';
+  });
+
+  bg.querySelector('#ce-cancel').onclick = () => bg.remove();
+  bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+
+  bg.querySelector('#ce-save').onclick = () => {
+    const trigger = bg.querySelector('#ce-trigger').value.trim();
+    const response = bg.querySelector('#ce-response').value.trim();
+    if (!trigger || !response) return toast('Trigger und Antwort sind Pflichtfelder.', 'err');
+
+    const newCmd = {
+      id: cmd?.id || 'cmd_' + Date.now(),
+      trigger,
+      response,
+      embedMode:    bg.querySelector('#ce-embed').checked,
+      embedTitle:   bg.querySelector('#ce-embed-title').value.trim(),
+      embedColor:   bg.querySelector('#ce-embed-color').value,
+      deleteMessage:bg.querySelector('#ce-delete').checked,
+      requireRole:  bg.querySelector('#ce-role').value || null,
+    };
+
+    if (!S.commandsConfig) S.commandsConfig = {};
+    if (!S.commandsConfig.customCommands) S.commandsConfig.customCommands = [];
+
+    if (isNew) {
+      S.commandsConfig.customCommands.push(newCmd);
+    } else {
+      const idx = S.commandsConfig.customCommands.findIndex(c => c.id === cmdId);
+      if (idx >= 0) S.commandsConfig.customCommands[idx] = newCmd;
+    }
+    renderCustomCommandList();
+    bg.remove();
+    toast('Command gespeichert – klicke "💾 Speichern" um zu übernehmen.', 'ok');
+  };
+}
+
+async function deleteCustomCommand(cmdId) {
+  if (!S.commandsConfig) return;
+  S.commandsConfig.customCommands = (S.commandsConfig.customCommands || []).filter(c => c.id !== cmdId);
+  renderCustomCommandList();
+  await saveCommandsConfig();
+}
+
+async function saveCommandsConfig() {
+  if (!S.commandsConfig) S.commandsConfig = {};
+
+  S.commandsConfig.prefix            = (document.getElementById('cmd-prefix')?.value || '!').trim() || '!';
+  S.commandsConfig.deleteCommandMessage = document.getElementById('cmd-delete-msg')?.checked !== false;
+
+  const modCmds = {};
+  document.querySelectorAll('input[data-modcmd]').forEach(inp => {
+    modCmds[inp.dataset.modcmd] = { enabled: inp.checked };
+  });
+  if (Object.keys(modCmds).length) S.commandsConfig.modCommands = modCmds;
+
+  try {
+    await api(`/api/guilds/${S.guild.id}/commands-config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(S.commandsConfig),
+    });
+    toast('Commands gespeichert!', 'ok');
+  } catch (e) {
+    toast('Fehler: ' + e.message, 'err');
+  }
+}
 </script>
 </body>
 </html>

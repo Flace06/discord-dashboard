@@ -435,13 +435,38 @@ client.on('guildUpdate', async (oldGuild, newGuild) => {
 //  END SERVER LOG
 // ════════════════════════════════════════════════════════════
 
-// Track message activity for auto-close + dispatch mod commands
+// Track message activity for auto-close + dispatch mod commands + custom commands
 client.on('messageCreate', async msg => {
   if (msg.author.bot || !msg.guild) return;
 
+  const guildCfg = cfg.getGuild(msg.guild.id);
+  const cmdCfg   = guildCfg.commandsConfig || {};
+  const prefix   = cmdCfg.prefix || guildCfg.modPrefix || '!';
+
   // Mod prefix commands
-  if (msg.content.startsWith('!')) {
+  if (msg.content.startsWith(prefix)) {
     await handleModCommand(msg);
+  }
+
+  // Custom commands
+  const customCmds = cmdCfg.customCommands || [];
+  for (const cmd of customCmds) {
+    if (!cmd.trigger || !cmd.response) continue;
+    if (!msg.content.startsWith(cmd.trigger)) continue;
+    // Role check
+    if (cmd.requireRole && !msg.member?.roles.cache.has(cmd.requireRole)) continue;
+    // Delete message
+    if (cmd.deleteMessage) msg.delete().catch(() => {});
+    // Send response
+    if (cmd.embedMode) {
+      const color = cmd.embedColor ? parseInt(cmd.embedColor.replace('#',''), 16) : 0x5865F2;
+      const emb   = new EmbedBuilder().setColor(color).setDescription(cmd.response);
+      if (cmd.embedTitle) emb.setTitle(cmd.embedTitle);
+      await msg.channel.send({ embeds: [emb] });
+    } else {
+      await msg.channel.send({ content: cmd.response });
+    }
+    break;
   }
 
   // Ticket auto-close tracking
@@ -449,7 +474,6 @@ client.on('messageCreate', async msg => {
   if (!ticket) return;
   ticket.lastActivity = Date.now();
   cfg.saveTicket(msg.channel.id, ticket);
-  const guildCfg = cfg.getGuild(msg.guild.id);
   if (guildCfg.autoClose?.enabled) scheduleAutoClose(msg.channel.id, ticket, guildCfg);
 });
 
@@ -557,8 +581,11 @@ async function postModLog(msg, { action, color, emoji, targetUser, targetId, mod
 }
 
 async function handleModCommand(msg) {
-  const guildCfg  = cfg.getGuild(msg.guild.id);
-  const prefix     = guildCfg.modPrefix || '!';
+  const guildCfg     = cfg.getGuild(msg.guild.id);
+  const cmdCfg       = guildCfg.commandsConfig || {};
+  const prefix       = cmdCfg.prefix || guildCfg.modPrefix || '!';
+  const modCmds      = cmdCfg.modCommands || {};
+  const deleteOnUse  = cmdCfg.deleteCommandMessage ?? true;
 
   // Parse command name
   if (!msg.content.startsWith(prefix)) return;
@@ -569,6 +596,10 @@ async function handleModCommand(msg) {
   const MOD_COMMANDS = ['ban','unban','kick','timeout','mute','untimeout','unmute','warn','modlogs'];
   if (!MOD_COMMANDS.includes(command)) return;
 
+  // Check if this specific command is enabled (default: true)
+  const canonicalCmd = command === 'mute' ? 'timeout' : command === 'unmute' ? 'untimeout' : command;
+  if (modCmds[canonicalCmd]?.enabled === false) return;
+
   // Permission check — must have ModerateMembers or BanMembers
   const member = msg.member;
   const hasMod = member.permissions.has(PermissionFlagsBits.ModerateMembers) ||
@@ -577,6 +608,9 @@ async function handleModCommand(msg) {
   if (!hasMod) {
     return msg.reply({ content: '❌ Du hast keine Berechtigung für Mod-Commands.' });
   }
+
+  // Delete the command message
+  if (deleteOnUse) msg.delete().catch(() => {});
 
   // ── !modlogs [user_id] ────────────────────────────────────
   if (command === 'modlogs') {
@@ -1702,6 +1736,23 @@ app.put('/api/guilds/:id/serverlog-config', requireAuth, (req, res) => {
     guildCfg.serverLog = req.body;
     cfg.saveGuild(req.params.id, guildCfg);
     res.json(guildCfg.serverLog);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Commands config ──────────────────────────────────────────
+app.get('/api/guilds/:id/commands-config', requireAuth, (req, res) => {
+  try {
+    const guildCfg = cfg.getGuild(req.params.id);
+    res.json(guildCfg.commandsConfig || {});
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/guilds/:id/commands-config', requireAuth, (req, res) => {
+  try {
+    const guildCfg = cfg.getGuild(req.params.id);
+    guildCfg.commandsConfig = req.body;
+    cfg.saveGuild(req.params.id, guildCfg);
+    res.json(guildCfg.commandsConfig);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
