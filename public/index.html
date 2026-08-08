@@ -3350,6 +3350,50 @@ function renderCommandsPage() {
   renderCustomCommandList();
 }
 
+// ── Shared channel-pill UI helper ────────────────────────────
+function buildChannelPicker(container, selectedIds, ns) {
+  const textChannels = (S.channels || [])
+    .filter(c => c.type === 0 || c.type === 5)
+    .sort((a,b) => (a.position||0)-(b.position||0));
+  let selected = [...(selectedIds || [])];
+
+  function render() {
+    const pills = selected.map(id => {
+      const ch = textChannels.find(c => c.id === id);
+      return `<span style="display:inline-flex;align-items:center;gap:4px;border-radius:12px;padding:2px 10px;font-size:12px;background:var(--bg);border:1px solid var(--border);color:var(--txt2)">
+        # ${esc(ch?.name || id)}
+        <button data-remove="${id}" style="background:none;border:none;color:var(--txt3);cursor:pointer;font-size:14px;line-height:1;padding:0 2px">×</button>
+      </span>`;
+    }).join('');
+
+    const available = textChannels.filter(c => !selected.includes(c.id));
+    const opts = available.map(c => `<option value="${c.id}"># ${esc(c.name)}</option>`).join('');
+
+    container.innerHTML = `
+      <div style="display:flex;flex-wrap:wrap;gap:6px;min-height:24px;margin-bottom:8px">
+        ${pills || '<span style="font-size:12px;color:var(--txt3);font-style:italic">Alle Kanäle erlaubt</span>'}
+      </div>
+      <div style="display:flex;gap:8px">
+        <select id="${ns}-ch-add" class="select-sm" style="flex:1" ${available.length?'':'disabled'}>
+          <option value="">+ Kanal hinzufügen…</option>
+          ${opts}
+        </select>
+        <button class="btn btn-ghost" id="${ns}-ch-btn" style="padding:4px 12px;font-size:12px">Hinzufügen</button>
+      </div>`;
+
+    container.querySelectorAll('[data-remove]').forEach(btn => {
+      btn.addEventListener('click', () => { selected = selected.filter(id => id !== btn.dataset.remove); render(); });
+    });
+    container.querySelector(`#${ns}-ch-btn`)?.addEventListener('click', () => {
+      const sel = container.querySelector(`#${ns}-ch-add`);
+      if (sel?.value && !selected.includes(sel.value)) { selected.push(sel.value); render(); }
+    });
+  }
+
+  render();
+  return { getSelected: () => selected };
+}
+
 // ── Shared role-pill UI helper ────────────────────────────────
 // Renders an interactive multi-role picker into `container`.
 // `selectedIds` = initial array of role IDs.
@@ -3451,6 +3495,10 @@ function openModCmdEditor(key) {
         <div id="mce-role-picker" style="margin-bottom:4px"></div>
         <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">Leer = alle mit Berechtigung können den Command nutzen</div>
 
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:6px;display:block">Erlaubte Kanäle (optional)</label>
+        <div id="mce-ch-picker" style="margin-bottom:4px"></div>
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">Leer = Command in allen Kanälen nutzbar</div>
+
         ${hasReply ? `
         <label style="font-size:12px;color:var(--txt3);margin-bottom:8px;display:block">Bot-Antwort Typ</label>
         <div style="display:flex;gap:8px;margin-bottom:16px">
@@ -3532,6 +3580,9 @@ function openModCmdEditor(key) {
   // Role picker
   const initRoles = mc.allowedRoles?.length ? mc.allowedRoles : (mc.requireRole ? [mc.requireRole] : []);
   const rolePicker = buildRolePicker(bg.querySelector('#mce-role-picker'), initRoles, 'mce');
+
+  // Channel picker
+  const chPicker = buildChannelPicker(bg.querySelector('#mce-ch-picker'), mc.allowedChannels || [], 'mce');
 
   if (hasReply) {
     // Type tab switching
@@ -3619,9 +3670,10 @@ function openModCmdEditor(key) {
     }
 
     const saved = {
-      enabled:      bg.querySelector('#mce-enabled').checked,
-      aliases:      aliasRaw ? aliasRaw.split(',').map(a=>a.trim()).filter(Boolean) : [],
-      allowedRoles: rolePicker.getSelected(),
+      enabled:         bg.querySelector('#mce-enabled').checked,
+      aliases:         aliasRaw ? aliasRaw.split(',').map(a=>a.trim()).filter(Boolean) : [],
+      allowedRoles:    rolePicker.getSelected(),
+      allowedChannels: chPicker.getSelected(),
       successType,
       successMsg:  '',
       successEmbed: {},
@@ -3723,7 +3775,11 @@ function openCommandEditor(cmdId) {
 
         <label style="font-size:12px;color:var(--txt3);margin-bottom:6px;display:block">Erlaubte Rollen (optional)</label>
         <div id="ce-role-picker" style="margin-bottom:4px"></div>
-        <div style="font-size:11px;color:var(--txt3)">Leer = alle Mitglieder können den Command nutzen</div>
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">Leer = alle Mitglieder können den Command nutzen</div>
+
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:6px;display:block">Erlaubte Kanäle (optional)</label>
+        <div id="ce-ch-picker" style="margin-bottom:4px"></div>
+        <div style="font-size:11px;color:var(--txt3)">Leer = Command in allen Kanälen nutzbar</div>
 
       </div>
       <div class="modal-lg-foot">
@@ -3743,6 +3799,9 @@ function openCommandEditor(cmdId) {
   const ceInitRoles = cmd?.allowedRoles?.length ? cmd.allowedRoles : (cmd?.requireRole ? [cmd.requireRole] : []);
   const ceRolePicker = buildRolePicker(bg.querySelector('#ce-role-picker'), ceInitRoles, 'ce');
 
+  // Channel picker
+  const ceChPicker = buildChannelPicker(bg.querySelector('#ce-ch-picker'), cmd?.allowedChannels || [], 'ce');
+
   bg.querySelector('#ce-cancel').onclick = () => bg.remove();
   bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
 
@@ -3755,11 +3814,12 @@ function openCommandEditor(cmdId) {
       id: cmd?.id || 'cmd_' + Date.now(),
       trigger,
       response,
-      embedMode:    bg.querySelector('#ce-embed').checked,
-      embedTitle:   bg.querySelector('#ce-embed-title').value.trim(),
-      embedColor:   bg.querySelector('#ce-embed-color').value,
-      deleteMessage:bg.querySelector('#ce-delete').checked,
-      allowedRoles: ceRolePicker.getSelected(),
+      embedMode:       bg.querySelector('#ce-embed').checked,
+      embedTitle:      bg.querySelector('#ce-embed-title').value.trim(),
+      embedColor:      bg.querySelector('#ce-embed-color').value,
+      deleteMessage:   bg.querySelector('#ce-delete').checked,
+      allowedRoles:    ceRolePicker.getSelected(),
+      allowedChannels: ceChPicker.getSelected(),
     };
 
     if (!S.commandsConfig) S.commandsConfig = {};

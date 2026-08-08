@@ -462,6 +462,8 @@ client.on('messageCreate', async msg => {
   for (const cmd of customCmds) {
     if (!cmd.trigger || !cmd.response) continue;
     if (!msg.content.startsWith(cmd.trigger)) continue;
+    // Channel check
+    if (cmd.allowedChannels?.length && !cmd.allowedChannels.includes(msg.channel.id)) continue;
     // Role check (allowedRoles array, fallback to old requireRole)
     const allowed = cmd.allowedRoles?.length ? cmd.allowedRoles : (cmd.requireRole ? [cmd.requireRole] : []);
     if (allowed.length && !allowed.some(rid => msg.member?.roles.cache.has(rid))) continue;
@@ -662,6 +664,12 @@ async function handleModCommand(msg) {
   const allowedRoles = modCmdCfg.allowedRoles?.length ? modCmdCfg.allowedRoles : (modCmdCfg.requireRole ? [modCmdCfg.requireRole] : []);
   if (allowedRoles.length && !allowedRoles.some(rid => member.roles.cache.has(rid))) {
     return msg.reply({ content: '❌ Du hast nicht die erforderliche Rolle für diesen Command.' });
+  }
+
+  // Check allowedChannels if configured
+  const allowedChs = modCmdCfg.allowedChannels || [];
+  if (allowedChs.length && !allowedChs.includes(msg.channel.id)) {
+    return msg.reply({ content: '❌ Dieser Command kann hier nicht benutzt werden.' });
   }
 
   // Delete the command message
