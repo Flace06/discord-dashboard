@@ -865,15 +865,6 @@ async function handleModCommand(msg) {
 
       const deleted = await msg.channel.bulkDelete(toDelete, true);
 
-      const info = await msg.channel.send({
-        embeds: [new EmbedBuilder()
-          .setColor(0x5865F2)
-          .setDescription(`🗑️ **${deleted.size}** Nachrichten gelöscht${filterUser ? ` von <@${filterUser}>` : ''} – von ${msg.author}`)
-          .setTimestamp(),
-        ],
-      });
-      setTimeout(() => info.delete().catch(() => {}), 5000);
-
       // Modlog-Eintrag
       const caseNum = recordModAction(msg.guild.id, msg.author.id, {
         action: 'Purge',
