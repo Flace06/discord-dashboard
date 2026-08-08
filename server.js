@@ -585,11 +585,19 @@ async function postModLog(msg, { action, color, emoji, targetUser, targetId, mod
 
   await sendLog(msg.guild.id, 'moderation', embed);
 
-  // Reply: custom message oder Standard-Embed
+  // Reply: custom embed, custom text, oder Standard-Embed
   const duration = extra?.value || null;
   const phCtx = { user: targetUser || { id: targetId, tag: targetId }, moderator, reason, caseNum, duration };
 
-  if (mc.successMsg) {
+  if (mc.successType === 'embed' && mc.successEmbed) {
+    const se = mc.successEmbed;
+    const replyEmbed = new EmbedBuilder();
+    if (se.color) replyEmbed.setColor(parseInt(se.color.replace('#',''), 16));
+    if (se.title) replyEmbed.setTitle(applyPlaceholders(se.title, phCtx));
+    if (se.description) replyEmbed.setDescription(applyPlaceholders(se.description, phCtx));
+    replyEmbed.setTimestamp();
+    await msg.channel.send({ embeds: [replyEmbed] });
+  } else if (mc.successMsg) {
     const text = applyPlaceholders(mc.successMsg, phCtx);
     await msg.channel.send({ content: text });
   } else {

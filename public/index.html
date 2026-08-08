@@ -3297,8 +3297,8 @@ function openModCmdEditor(key) {
   const mc     = (cfg.modCommands || {})[key] || {};
   const def    = MOD_CMD_LIST.find(c => c.key === key);
   const roles  = (S.roles || []).filter(r => r.name !== '@everyone');
+  const hasReply = key !== 'modlogs' && key !== 'purge';
 
-  // Usage hint per command
   const usageHints = {
     ban:       '!ban [user_id] [grund] [proof]',
     unban:     '!unban [user_id] [grund]',
@@ -3310,10 +3310,22 @@ function openModCmdEditor(key) {
     modlogs:   '!modlogs [user_id]',
   };
 
+  const initType  = mc.successType || 'default';
+  const se        = mc.successEmbed || {};
+  const phHelp    = `<div style="font-size:11px;color:var(--txt3);margin-top:8px;line-height:1.9">
+    Platzhalter:
+    <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{user}</code>
+    <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{usertag}</code>
+    <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{moderator}</code>
+    <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{reason}</code>
+    <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{case}</code>
+    ${key === 'timeout' ? '<code style="background:var(--bg);padding:1px 5px;border-radius:4px">{duration}</code>' : ''}
+  </div>`;
+
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
   bg.innerHTML = `
-    <div class="modal-lg" style="width:480px">
+    <div class="modal-lg" style="width:500px;max-height:90vh;overflow-y:auto">
       <div class="modal-lg-head">
         <h3>${def?.label || key} – Einstellungen</h3>
         <p style="color:var(--txt3);font-size:13px;margin-top:4px">Standard-Usage: <code style="color:var(--blurple)">${esc(usageHints[key]||'')}</code></p>
@@ -3336,22 +3348,70 @@ function openModCmdEditor(key) {
         </select>
         <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">Nur Mitglieder mit dieser Rolle können den Command nutzen</div>
 
-        ${key !== 'modlogs' && key !== 'purge' ? `
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Erfolgs-Nachricht (optional)</label>
-        <textarea id="mce-successmsg" class="modal-input" rows="3" placeholder="Standard: automatisches Embed&#10;z.B. ✅ {user} wurde gebannt. Grund: {reason}" style="resize:vertical;margin-bottom:6px;font-family:inherit">${esc(mc.successMsg||'')}</textarea>
-        <div style="font-size:11px;color:var(--txt3);margin-bottom:10px;line-height:1.7">
-          Platzhalter:
-          <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{user}</code>
-          <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{usertag}</code>
-          <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{moderator}</code>
-          <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{reason}</code>
-          <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{case}</code>
-          ${key === 'timeout' ? '<code style="background:var(--bg);padding:1px 5px;border-radius:4px">{duration}</code>' : ''}
-          <br><span style="color:var(--txt3)">Leer lassen = Standard-Embed</span>
+        ${hasReply ? `
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:8px;display:block">Bot-Antwort Typ</label>
+        <div style="display:flex;gap:8px;margin-bottom:16px">
+          <button class="mce-type-btn ${initType==='default'?'active':''}" data-type="default"
+            style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:${initType==='default'?'var(--blurple)':'var(--bg3)'};color:${initType==='default'?'#fff':'var(--txt)'};cursor:pointer;font-size:13px">
+            🤖 Standard
+          </button>
+          <button class="mce-type-btn ${initType==='text'?'active':''}" data-type="text"
+            style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:${initType==='text'?'var(--blurple)':'var(--bg3)'};color:${initType==='text'?'#fff':'var(--txt)'};cursor:pointer;font-size:13px">
+            💬 Text
+          </button>
+          <button class="mce-type-btn ${initType==='embed'?'active':''}" data-type="embed"
+            style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:${initType==='embed'?'var(--blurple)':'var(--bg3)'};color:${initType==='embed'?'#fff':'var(--txt)'};cursor:pointer;font-size:13px">
+            📋 Embed
+          </button>
         </div>
-        <div id="mce-preview-wrap" style="display:none;background:var(--bg3);border-radius:8px;padding:10px 14px;margin-bottom:4px;font-size:13px;border-left:3px solid var(--blurple)">
-          <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">Vorschau:</div>
-          <div id="mce-preview" style="color:var(--txt)"></div>
+
+        <!-- Default info -->
+        <div id="mce-panel-default" style="${initType!=='default'?'display:none':''}">
+          <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;font-size:13px;color:var(--txt3)">
+            Der Bot sendet ein automatisches farbiges Embed mit Aktion, Case-Nummer und Zeitstempel.
+          </div>
+        </div>
+
+        <!-- Text panel -->
+        <div id="mce-panel-text" style="${initType!=='text'?'display:none':''}">
+          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Nachrichtentext</label>
+          <textarea id="mce-successmsg" class="modal-input" rows="3"
+            placeholder="z.B. ✅ {user} wurde gebannt. Grund: {reason}"
+            style="resize:vertical;margin-bottom:4px;font-family:inherit">${esc(mc.successMsg||'')}</textarea>
+          ${phHelp}
+          <div id="mce-preview-wrap" style="${mc.successMsg?'':'display:none'};background:var(--bg3);border-radius:8px;padding:10px 14px;margin-top:10px;font-size:13px;border-left:3px solid var(--blurple)">
+            <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">Vorschau:</div>
+            <div id="mce-preview" style="color:var(--txt)">${esc(mc.successMsg||'')}</div>
+          </div>
+        </div>
+
+        <!-- Embed panel -->
+        <div id="mce-panel-embed" style="${initType!=='embed'?'display:none':''}">
+          <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px">
+            <div style="flex:1">
+              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Embed-Farbe</label>
+              <input id="mce-embed-color" type="color" value="${se.color||'#5865f2'}"
+                style="height:38px;width:100%;border-radius:8px;border:1px solid var(--border);background:transparent;cursor:pointer">
+            </div>
+            <div style="flex:3">
+              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Titel (optional)</label>
+              <input id="mce-embed-title" class="modal-input" placeholder="z.B. ✅ Bann ausgeführt"
+                value="${esc(se.title||'')}" style="margin-bottom:0">
+            </div>
+          </div>
+          <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Beschreibung</label>
+          <textarea id="mce-embed-desc" class="modal-input" rows="3"
+            placeholder="z.B. {user} wurde von {moderator} gebannt.\nGrund: {reason}"
+            style="resize:vertical;margin-bottom:4px;font-family:inherit">${esc(se.description||'')}</textarea>
+          ${phHelp}
+          <div id="mce-embed-preview-wrap" style="${se.description||se.title?'':'display:none'};margin-top:12px">
+            <div style="font-size:11px;color:var(--txt3);margin-bottom:6px">Vorschau:</div>
+            <div id="mce-embed-preview"
+              style="border-left:4px solid ${se.color||'#5865f2'};background:var(--bg3);border-radius:0 8px 8px 0;padding:10px 14px;font-size:13px">
+              <div id="mce-embed-preview-title" style="font-weight:700;margin-bottom:4px;color:var(--txt)">${esc(se.title||'')}</div>
+              <div id="mce-embed-preview-desc" style="color:var(--txt2);white-space:pre-wrap">${esc(se.description||'')}</div>
+            </div>
+          </div>
         </div>
         ` : ''}
 
@@ -3366,21 +3426,114 @@ function openModCmdEditor(key) {
   bg.querySelector('#mce-cancel').onclick = () => bg.remove();
   bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
 
+  if (hasReply) {
+    // Type tab switching
+    let currentType = initType;
+    bg.querySelectorAll('.mce-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentType = btn.dataset.type;
+        bg.querySelectorAll('.mce-type-btn').forEach(b => {
+          const active = b.dataset.type === currentType;
+          b.style.background = active ? 'var(--blurple)' : 'var(--bg3)';
+          b.style.color = active ? '#fff' : 'var(--txt)';
+        });
+        ['default','text','embed'].forEach(t => {
+          bg.querySelector(`#mce-panel-${t}`).style.display = t === currentType ? '' : 'none';
+        });
+      });
+    });
+
+    // Text live preview
+    const smEl = bg.querySelector('#mce-successmsg');
+    if (smEl) {
+      const pWrap = bg.querySelector('#mce-preview-wrap');
+      const pEl   = bg.querySelector('#mce-preview');
+      function applyPH(val) {
+        return val
+          .replace(/\{user\}/gi,'@MaxMustermann')
+          .replace(/\{usertag\}/gi,'MaxMustermann#0001')
+          .replace(/\{moderator\}/gi,'@Admin')
+          .replace(/\{reason\}/gi,'Regelverstoß')
+          .replace(/\{case\}/gi,'42')
+          .replace(/\{duration\}/gi,'1h');
+      }
+      smEl.addEventListener('input', () => {
+        const v = smEl.value.trim();
+        pWrap.style.display = v ? '' : 'none';
+        pEl.textContent = applyPH(v);
+      });
+      if (smEl.value.trim()) smEl.dispatchEvent(new Event('input'));
+    }
+
+    // Embed live preview
+    const descEl  = bg.querySelector('#mce-embed-desc');
+    const titleEl = bg.querySelector('#mce-embed-title');
+    const colorEl = bg.querySelector('#mce-embed-color');
+    const epWrap  = bg.querySelector('#mce-embed-preview-wrap');
+    const epBox   = bg.querySelector('#mce-embed-preview');
+    const epTitle = bg.querySelector('#mce-embed-preview-title');
+    const epDesc  = bg.querySelector('#mce-embed-preview-desc');
+    function updateEmbedPreview() {
+      function applyPH(val) {
+        return (val||'')
+          .replace(/\{user\}/gi,'@MaxMustermann')
+          .replace(/\{usertag\}/gi,'MaxMustermann#0001')
+          .replace(/\{moderator\}/gi,'@Admin')
+          .replace(/\{reason\}/gi,'Regelverstoß')
+          .replace(/\{case\}/gi,'42')
+          .replace(/\{duration\}/gi,'1h');
+      }
+      const t = titleEl.value.trim();
+      const d = descEl.value.trim();
+      const c = colorEl.value;
+      epWrap.style.display = (t||d) ? '' : 'none';
+      epBox.style.borderLeftColor = c;
+      epTitle.textContent = applyPH(t);
+      epDesc.textContent  = applyPH(d);
+    }
+    if (descEl)  descEl.addEventListener('input',  updateEmbedPreview);
+    if (titleEl) titleEl.addEventListener('input', updateEmbedPreview);
+    if (colorEl) colorEl.addEventListener('input', updateEmbedPreview);
+    if (se.title || se.description) updateEmbedPreview();
+  }
+
   bg.querySelector('#mce-save').onclick = () => {
     if (!S.commandsConfig) S.commandsConfig = {};
     if (!S.commandsConfig.modCommands) S.commandsConfig.modCommands = {};
 
-    const aliasRaw = bg.querySelector('#mce-aliases').value.trim();
-    S.commandsConfig.modCommands[key] = {
-      enabled:    bg.querySelector('#mce-enabled').checked,
-      aliases:    aliasRaw ? aliasRaw.split(',').map(a=>a.trim()).filter(Boolean) : [],
-      requireRole:bg.querySelector('#mce-role').value || null,
-      successMsg: (bg.querySelector('#mce-successmsg')?.value || '').trim(),
+    const aliasRaw   = bg.querySelector('#mce-aliases').value.trim();
+    const typeBtn    = bg.querySelector('.mce-type-btn.active') ||
+                       [...bg.querySelectorAll('.mce-type-btn')].find(b=>b.style.background.includes('blurple') || b.style.background === 'var(--blurple)');
+    // Read current type from visible panel
+    let successType = 'default';
+    if (hasReply) {
+      if (bg.querySelector('#mce-panel-text')?.style.display !== 'none')  successType = 'text';
+      if (bg.querySelector('#mce-panel-embed')?.style.display !== 'none') successType = 'embed';
+    }
+
+    const saved = {
+      enabled:     bg.querySelector('#mce-enabled').checked,
+      aliases:     aliasRaw ? aliasRaw.split(',').map(a=>a.trim()).filter(Boolean) : [],
+      requireRole: bg.querySelector('#mce-role').value || null,
+      successType,
+      successMsg:  '',
+      successEmbed: {},
     };
 
-    // Sync checkbox in the card
+    if (successType === 'text') {
+      saved.successMsg = (bg.querySelector('#mce-successmsg')?.value || '').trim();
+    } else if (successType === 'embed') {
+      saved.successEmbed = {
+        color:       bg.querySelector('#mce-embed-color')?.value || '#5865f2',
+        title:       (bg.querySelector('#mce-embed-title')?.value || '').trim(),
+        description: (bg.querySelector('#mce-embed-desc')?.value || '').trim(),
+      };
+    }
+
+    S.commandsConfig.modCommands[key] = saved;
+
     const cardCb = document.querySelector(`input[data-modcmd="${key}"]`);
-    if (cardCb) cardCb.checked = S.commandsConfig.modCommands[key].enabled;
+    if (cardCb) cardCb.checked = saved.enabled;
 
     renderCommandsPage();
     bg.remove();
@@ -3481,28 +3634,7 @@ function openCommandEditor(cmdId) {
     bg.querySelector('#ce-embed-fields').style.display = e.target.checked ? '' : 'none';
   });
 
-  // Live preview for success message
-  const smEl = bg.querySelector('#mce-successmsg');
-  if (smEl) {
-    const previewWrap = bg.querySelector('#mce-preview-wrap');
-    const previewEl   = bg.querySelector('#mce-preview');
-    const sampleVars  = { user: '@MaxMustermann', usertag: 'MaxMustermann#0001', moderator: '@Admin', reason: 'Regelverstoß', caseNum: '42', duration: '1h' };
-    smEl.addEventListener('input', () => {
-      const val = smEl.value.trim();
-      if (!val) { previewWrap.style.display = 'none'; return; }
-      previewWrap.style.display = '';
-      previewEl.textContent = val
-        .replace(/\{user\}/gi, sampleVars.user)
-        .replace(/\{usertag\}/gi, sampleVars.usertag)
-        .replace(/\{moderator\}/gi, sampleVars.moderator)
-        .replace(/\{reason\}/gi, sampleVars.reason)
-        .replace(/\{case\}/gi, sampleVars.caseNum)
-        .replace(/\{duration\}/gi, sampleVars.duration);
-    });
-    if (smEl.value.trim()) smEl.dispatchEvent(new Event('input'));
-  }
-
-  bg.querySelector('#mce-cancel').onclick = () => bg.remove();
+  bg.querySelector('#ce-cancel').onclick = () => bg.remove();
   bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
 
   bg.querySelector('#ce-save').onclick = () => {
