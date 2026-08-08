@@ -979,11 +979,11 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
               <div class="tk-sec" style="margin-bottom:16px">
                 <div class="tk-sec-title">Panel-Embed</div>
                 <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Titel</label>
-                <input id="panel-title" class="modal-input" placeholder="z.B. 🎫 Support" oninput="updatePanelPreview()" style="margin-bottom:10px">
+                <input id="panel-title" class="modal-input" placeholder="z.B. 🎫 Support" oninput="updatePanelPreview();savePanelConfig()" style="margin-bottom:10px">
                 <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Beschreibung</label>
-                <textarea id="panel-desc" class="modal-input" rows="6" placeholder="Klicke einen Button um ein Ticket zu öffnen…" oninput="updatePanelPreview()" style="resize:vertical;margin-bottom:10px;min-height:120px"></textarea>
+                <textarea id="panel-desc" class="modal-input" rows="6" placeholder="Klicke einen Button um ein Ticket zu öffnen…" oninput="updatePanelPreview();savePanelConfig()" style="resize:vertical;margin-bottom:10px;min-height:120px"></textarea>
                 <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Farbe</label>
-                <input id="panel-color" type="color" value="#5865f2" oninput="updatePanelPreview()" style="height:36px;width:100%;border-radius:8px;border:1px solid var(--border);background:transparent;cursor:pointer">
+                <input id="panel-color" type="color" value="#5865f2" oninput="updatePanelPreview();savePanelConfig()" style="height:36px;width:100%;border-radius:8px;border:1px solid var(--border);background:transparent;cursor:pointer">
               </div>
 
               <div class="tk-sec" style="margin-bottom:16px">
@@ -3198,9 +3198,40 @@ async function saveTkConfig() {
 /* ── Panel tab ───────────────────────────────── */
 let panelButtons = []; // [{ uid, categoryId, label, emoji, style, color }]
 
+function panelStorageKey() { return `panelConfig_${S.guild?.id || 'default'}`; }
+
+function savePanelConfig() {
+  try {
+    localStorage.setItem(panelStorageKey(), JSON.stringify({
+      title:   document.getElementById('panel-title')?.value || '',
+      desc:    document.getElementById('panel-desc')?.value  || '',
+      color:   document.getElementById('panel-color')?.value || '#5865f2',
+      buttons: panelButtons,
+    }));
+  } catch {}
+}
+
+function loadPanelConfig() {
+  try {
+    const raw = localStorage.getItem(panelStorageKey());
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    const titleEl = document.getElementById('panel-title');
+    const descEl  = document.getElementById('panel-desc');
+    const colorEl = document.getElementById('panel-color');
+    if (titleEl && saved.title) titleEl.value = saved.title;
+    if (descEl  && saved.desc)  descEl.value  = saved.desc;
+    if (colorEl && saved.color) colorEl.value = saved.color;
+    if (Array.isArray(saved.buttons)) panelButtons = saved.buttons;
+  } catch {}
+}
+
 function renderTkPanel() {
   const chSel = document.getElementById('panel-ch-select');
   if (!chSel) return;
+
+  // Restore saved config (e.g. after page reload)
+  loadPanelConfig();
 
   // Channel select
   const textChs = (S.channels || []).filter(c => c.type === 0 || c.type === 5);
@@ -3258,17 +3289,19 @@ function addPanelButton() {
   panelButtons.push({ uid: 'pb_' + Date.now(), categoryId: '', label: '', emoji: '', style: 'Primary', color: '#5865f2' });
   renderPanelButtons();
   updatePanelPreview();
+  savePanelConfig();
 }
 
 function removePanelButton(uid) {
   panelButtons = panelButtons.filter(b => b.uid !== uid);
   renderPanelButtons();
   updatePanelPreview();
+  savePanelConfig();
 }
 
 function updatePanelBtn(uid, field, value) {
   const btn = panelButtons.find(b => b.uid === uid);
-  if (btn) { btn[field] = value; updatePanelPreview(); }
+  if (btn) { btn[field] = value; updatePanelPreview(); savePanelConfig(); }
 }
 
 function updatePanelPreview() {
