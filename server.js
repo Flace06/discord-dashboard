@@ -834,13 +834,19 @@ async function handleButton(interaction) {
     });
 
   } else if (id === 'ticket_forward') {
-    const guildCfg = cfg.getGuild(interaction.guild.id);
-    const options = guildCfg.categories.map(cat => ({
-      label: `${cat.emoji || '🎫'} ${cat.name}`,
-      value: `forward_${cat.id}`,
-      description: (cat.description || '').slice(0, 50),
-    }));
-    if (!options.length) return interaction.reply({ content: '❌ Keine Kategorien verfügbar.', ephemeral: true });
+    const guildCfg  = cfg.getGuild(interaction.guild.id);
+    const curTicket = cfg.getTicket(interaction.channel.id);
+    const options   = guildCfg.categories
+      .filter(cat => cat.id !== curTicket?.categoryId) // aktuelle Kategorie rausfiltern
+      .map(cat => {
+        const opt = {
+          label: `${cat.emoji || '🎫'} ${cat.name}`.slice(0, 100),
+          value: `forward_${cat.id}`,
+        };
+        if (cat.description) opt.description = cat.description.slice(0, 50);
+        return opt;
+      });
+    if (!options.length) return interaction.reply({ content: '❌ Keine anderen Kategorien verfügbar. Erstelle zuerst weitere Kategorien im Dashboard.', ephemeral: true });
     const select = new StringSelectMenuBuilder()
       .setCustomId('select_forward').setPlaceholder('Ziel-Kategorie auswählen').addOptions(options);
     await interaction.reply({
@@ -922,14 +928,15 @@ async function handleStringSelect(interaction) {
     if (!cat) return interaction.update({ content: '❌ Kategorie nicht gefunden.', components: [] });
 
     const ticket = cfg.getTicket(interaction.channel.id);
+
+    // Alte Kategorie VOR dem Speichern holen
+    const oldCat = guildCfg.categories.find(c => c.id === ticket?.categoryId);
+
     if (ticket) {
       ticket.categoryId = categoryId;
       ticket.categoryName = cat.name;
       cfg.saveTicket(interaction.channel.id, ticket);
     }
-
-    // Rollen der alten Kategorie entfernen, neue Rollen hinzufügen
-    const oldCat = guildCfg.categories.find(c => c.id === ticket?.categoryId);
     if (oldCat?.supportRoles?.length) {
       for (const roleId of oldCat.supportRoles) {
         if (!cat.supportRoles?.includes(roleId)) {
