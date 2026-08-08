@@ -927,15 +927,38 @@ async function handleStringSelect(interaction) {
       ticket.categoryName = cat.name;
       cfg.saveTicket(interaction.channel.id, ticket);
     }
+
+    // Rollen der alten Kategorie entfernen, neue Rollen hinzufügen
+    const oldCat = guildCfg.categories.find(c => c.id === ticket?.categoryId);
+    if (oldCat?.supportRoles?.length) {
+      for (const roleId of oldCat.supportRoles) {
+        if (!cat.supportRoles?.includes(roleId)) {
+          await interaction.channel.permissionOverwrites.delete(roleId).catch(() => {});
+        }
+      }
+    }
     if (cat.supportRoles?.length) {
       for (const roleId of cat.supportRoles) {
         await interaction.channel.permissionOverwrites.edit(roleId, {
           ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
-        });
+        }).catch(() => {});
       }
     }
+
+    // Channel in den Discord-Kategorieordner der Zielkategorie verschieben
+    if (cat.parentCategory) {
+      await interaction.channel.setParent(cat.parentCategory, { lockPermissions: false }).catch(() => {});
+    }
+
+    // Mention der neuen Support-Rollen
+    const mentions = cat.mentionSupportRoles && cat.supportRoles?.length
+      ? cat.supportRoles.map(r => `<@&${r}>`).join(' ')
+      : '';
+
     await interaction.update({ content: `✅ Ticket an **${cat.name}** weitergeleitet.`, components: [] });
-    await interaction.channel.send({ content: `📨 Dieses Ticket wurde an **${cat.name}** weitergeleitet.` });
+    await interaction.channel.send({
+      content: `📨 Dieses Ticket wurde an **${cat.emoji || '🎫'} ${cat.name}** weitergeleitet.${mentions ? `\n${mentions}` : ''}`,
+    });
   }
 }
 
