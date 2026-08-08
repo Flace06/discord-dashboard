@@ -551,10 +551,22 @@ function recordModAction(guildId, targetId, action) {
   return guildCfg.modCaseCounter;
 }
 
+/** Ersetzt Platzhalter in einer Nachricht */
+function applyPlaceholders(template, { user, moderator, reason, caseNum, duration }) {
+  return template
+    .replace(/\{user\}/gi,      user      ? `<@${user.id}>`      : '?')
+    .replace(/\{usertag\}/gi,   user?.tag || '?')
+    .replace(/\{moderator\}/gi, moderator ? `<@${moderator.id}>` : '?')
+    .replace(/\{reason\}/gi,    reason    || 'Kein Grund')
+    .replace(/\{case\}/gi,      String(caseNum))
+    .replace(/\{duration\}/gi,  duration  || '');
+}
+
 /** Build and send a modlog embed, then reply in the command channel */
-async function postModLog(msg, { action, color, emoji, targetUser, targetId, moderator, reason, proof, extra }) {
+async function postModLog(msg, { action, color, emoji, targetUser, targetId, moderator, reason, proof, extra, cmdKey }) {
   const guildCfg = cfg.getGuild(msg.guild.id);
   const caseNum  = recordModAction(msg.guild.id, targetId, { action, reason, proof, moderator: moderator.id });
+  const mc       = (guildCfg.commandsConfig?.modCommands || {})[cmdKey] || {};
 
   const embed = new EmbedBuilder()
     .setColor(color)
@@ -573,11 +585,20 @@ async function postModLog(msg, { action, color, emoji, targetUser, targetId, mod
 
   await sendLog(msg.guild.id, 'moderation', embed);
 
-  const replyEmbed = new EmbedBuilder()
-    .setColor(color)
-    .setDescription(`${emoji} **${action}** ausgeführt | Case #${caseNum}`)
-    .setTimestamp();
-  await msg.reply({ embeds: [replyEmbed] });
+  // Reply: custom message oder Standard-Embed
+  const duration = extra?.value || null;
+  const phCtx = { user: targetUser || { id: targetId, tag: targetId }, moderator, reason, caseNum, duration };
+
+  if (mc.successMsg) {
+    const text = applyPlaceholders(mc.successMsg, phCtx);
+    await msg.channel.send({ content: text });
+  } else {
+    const replyEmbed = new EmbedBuilder()
+      .setColor(color)
+      .setDescription(`${emoji} **${action}** ausgeführt | Case #${caseNum}`)
+      .setTimestamp();
+    await msg.channel.send({ embeds: [replyEmbed] });
+  }
 }
 
 async function handleModCommand(msg) {
@@ -674,7 +695,7 @@ async function handleModCommand(msg) {
       return msg.reply({ content: `❌ Ban fehlgeschlagen: ${e.message}` });
     }
     await postModLog(msg, {
-      action: 'Ban', color: 0xED4245, emoji: '🔨',
+      action: 'Ban', color: 0xED4245, emoji: '🔨', cmdKey: 'ban',
       targetUser, targetId, moderator: msg.author,
       reason, proof,
     });
@@ -692,7 +713,7 @@ async function handleModCommand(msg) {
       return msg.reply({ content: `❌ Unban fehlgeschlagen: ${e.message}` });
     }
     await postModLog(msg, {
-      action: 'Unban', color: 0x57F287, emoji: '✅',
+      action: 'Unban', color: 0x57F287, emoji: '✅', cmdKey: 'unban',
       targetUser, targetId, moderator: msg.author,
       reason, proof: null,
     });
@@ -713,7 +734,7 @@ async function handleModCommand(msg) {
       return msg.reply({ content: `❌ Kick fehlgeschlagen: ${e.message}` });
     }
     await postModLog(msg, {
-      action: 'Kick', color: 0xFEE75C, emoji: '👢',
+      action: 'Kick', color: 0xFEE75C, emoji: '👢', cmdKey: 'kick',
       targetUser, targetId, moderator: msg.author,
       reason, proof,
     });
@@ -739,7 +760,7 @@ async function handleModCommand(msg) {
       return msg.reply({ content: `❌ Timeout fehlgeschlagen: ${e.message}` });
     }
     await postModLog(msg, {
-      action: 'Timeout', color: 0xEB459E, emoji: '⏱️',
+      action: 'Timeout', color: 0xEB459E, emoji: '⏱️', cmdKey: 'timeout',
       targetUser, targetId, moderator: msg.author,
       reason, proof,
       extra: { name: '⏳ Dauer', value: formatDuration(ms), inline: true },
@@ -759,7 +780,7 @@ async function handleModCommand(msg) {
       return msg.reply({ content: `❌ Untimeout fehlgeschlagen: ${e.message}` });
     }
     await postModLog(msg, {
-      action: 'Untimeout', color: 0x57F287, emoji: '🔓',
+      action: 'Untimeout', color: 0x57F287, emoji: '🔓', cmdKey: 'untimeout',
       targetUser, targetId, moderator: msg.author,
       reason, proof: null,
     });
@@ -787,7 +808,7 @@ async function handleModCommand(msg) {
     }
 
     await postModLog(msg, {
-      action: 'Warn', color: 0xFEE75C, emoji: '⚠️',
+      action: 'Warn', color: 0xFEE75C, emoji: '⚠️', cmdKey: 'warn',
       targetUser, targetId, moderator: msg.author,
       reason, proof,
     });

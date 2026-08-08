@@ -3338,8 +3338,21 @@ function openModCmdEditor(key) {
 
         ${key !== 'modlogs' && key !== 'purge' ? `
         <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Erfolgs-Nachricht (optional)</label>
-        <input id="mce-successmsg" class="modal-input" placeholder="Standard: automatisch" value="${esc(mc.successMsg||'')}" style="margin-bottom:6px">
-        <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">Platzhalter: <code>{user}</code> {moderator} {reason} {case}</div>
+        <textarea id="mce-successmsg" class="modal-input" rows="3" placeholder="Standard: automatisches Embed&#10;z.B. ✅ {user} wurde gebannt. Grund: {reason}" style="resize:vertical;margin-bottom:6px;font-family:inherit">${esc(mc.successMsg||'')}</textarea>
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:10px;line-height:1.7">
+          Platzhalter:
+          <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{user}</code>
+          <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{usertag}</code>
+          <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{moderator}</code>
+          <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{reason}</code>
+          <code style="background:var(--bg);padding:1px 5px;border-radius:4px">{case}</code>
+          ${key === 'timeout' ? '<code style="background:var(--bg);padding:1px 5px;border-radius:4px">{duration}</code>' : ''}
+          <br><span style="color:var(--txt3)">Leer lassen = Standard-Embed</span>
+        </div>
+        <div id="mce-preview-wrap" style="display:none;background:var(--bg3);border-radius:8px;padding:10px 14px;margin-bottom:4px;font-size:13px;border-left:3px solid var(--blurple)">
+          <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">Vorschau:</div>
+          <div id="mce-preview" style="color:var(--txt)"></div>
+        </div>
         ` : ''}
 
       </div>
@@ -3362,7 +3375,7 @@ function openModCmdEditor(key) {
       enabled:    bg.querySelector('#mce-enabled').checked,
       aliases:    aliasRaw ? aliasRaw.split(',').map(a=>a.trim()).filter(Boolean) : [],
       requireRole:bg.querySelector('#mce-role').value || null,
-      successMsg: bg.querySelector('#mce-successmsg')?.value.trim() || '',
+      successMsg: (bg.querySelector('#mce-successmsg')?.value || '').trim(),
     };
 
     // Sync checkbox in the card
@@ -3468,7 +3481,28 @@ function openCommandEditor(cmdId) {
     bg.querySelector('#ce-embed-fields').style.display = e.target.checked ? '' : 'none';
   });
 
-  bg.querySelector('#ce-cancel').onclick = () => bg.remove();
+  // Live preview for success message
+  const smEl = bg.querySelector('#mce-successmsg');
+  if (smEl) {
+    const previewWrap = bg.querySelector('#mce-preview-wrap');
+    const previewEl   = bg.querySelector('#mce-preview');
+    const sampleVars  = { user: '@MaxMustermann', usertag: 'MaxMustermann#0001', moderator: '@Admin', reason: 'Regelverstoß', caseNum: '42', duration: '1h' };
+    smEl.addEventListener('input', () => {
+      const val = smEl.value.trim();
+      if (!val) { previewWrap.style.display = 'none'; return; }
+      previewWrap.style.display = '';
+      previewEl.textContent = val
+        .replace(/\{user\}/gi, sampleVars.user)
+        .replace(/\{usertag\}/gi, sampleVars.usertag)
+        .replace(/\{moderator\}/gi, sampleVars.moderator)
+        .replace(/\{reason\}/gi, sampleVars.reason)
+        .replace(/\{case\}/gi, sampleVars.caseNum)
+        .replace(/\{duration\}/gi, sampleVars.duration);
+    });
+    if (smEl.value.trim()) smEl.dispatchEvent(new Event('input'));
+  }
+
+  bg.querySelector('#mce-cancel').onclick = () => bg.remove();
   bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
 
   bg.querySelector('#ce-save').onclick = () => {
