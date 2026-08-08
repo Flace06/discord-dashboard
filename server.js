@@ -435,9 +435,16 @@ client.on('guildUpdate', async (oldGuild, newGuild) => {
 //  END SERVER LOG
 // ════════════════════════════════════════════════════════════
 
-// Track message activity for auto-close
+// Track message activity for auto-close + dispatch mod commands
 client.on('messageCreate', async msg => {
   if (msg.author.bot || !msg.guild) return;
+
+  // Mod prefix commands
+  if (msg.content.startsWith('!')) {
+    await handleModCommand(msg);
+  }
+
+  // Ticket auto-close tracking
   const ticket = cfg.getTicket(msg.channel.id);
   if (!ticket) return;
   ticket.lastActivity = Date.now();
@@ -445,6 +452,301 @@ client.on('messageCreate', async msg => {
   const guildCfg = cfg.getGuild(msg.guild.id);
   if (guildCfg.autoClose?.enabled) scheduleAutoClose(msg.channel.id, ticket, guildCfg);
 });
+
+// ════════════════════════════════════════════════════════════
+//  MOD PREFIX COMMANDS  (!ban / !kick / !timeout / !warn …)
+// ════════════════════════════════════════════════════════════
+
+/** Returns true if the string looks like a direct image URL */
+function isImageUrl(str) {
+  if (!str) return false;
+  try { new URL(str); } catch { return false; }
+  return /\.(png|jpe?g|gif|webp|bmp|tiff?|svg)(\?.*)?$/i.test(str) ||
+         /^https?:\/\/(i\.)?imgur\.com\//i.test(str) ||
+         /^https?:\/\/cdn\.discordapp\.com\//i.test(str) ||
+         /^https?:\/\/media\.discordapp\.net\//i.test(str);
+}
+
+/** Parse a duration string like "1d", "2h30m", "60s" → milliseconds */
+function parseDuration(str) {
+  if (!str) return null;
+  const re = /(\d+)\s*(d(?:ays?)?|h(?:ours?)?|m(?:in(?:utes?)?)?|s(?:ec(?:onds?)?)?)/gi;
+  let ms = 0, match;
+  while ((match = re.exec(str)) !== null) {
+    const n = parseInt(match[1], 10);
+    const u = match[2][0].toLowerCase();
+    if (u === 'd') ms += n * 86_400_000;
+    else if (u === 'h') ms += n * 3_600_000;
+    else if (u === 'm') ms += n * 60_000;
+    else if (u === 's') ms += n * 1_000;
+  }
+  return ms > 0 ? ms : null;
+}
+
+/** Format milliseconds to a human-readable string */
+function formatDuration(ms) {
+  if (!ms) return '?';
+  const d = Math.floor(ms / 86_400_000);
+  const h = Math.floor((ms % 86_400_000) / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  const s = Math.floor((ms % 60_000) / 1_000);
+  return [d && `${d}d`, h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean).join(' ') || '0s';
+}
+
+/** Store a mod action and return the new case number */
+function recordModAction(guildId, targetId, action) {
+  const guildCfg = cfg.getGuild(guildId);
+  if (!guildCfg.modCaseCounter) guildCfg.modCaseCounter = 0;
+  if (!guildCfg.modActions) guildCfg.modActions = {};
+  if (!guildCfg.modActions[targetId]) guildCfg.modActions[targetId] = [];
+  guildCfg.modCaseCounter += 1;
+  guildCfg.modActions[targetId].push({ ...action, case: guildCfg.modCaseCounter, timestamp: Date.now() });
+  cfg.saveGuild(guildId, guildCfg);
+  return guildCfg.modCaseCounter;
+}
+
+/** Build and send a modlog embed, then reply in the command channel */
+async function postModLog(msg, { action, color, emoji, targetUser, targetId, moderator, reason, proof, extra }) {
+  const guildCfg = cfg.getGuild(msg.guild.id);
+  const caseNum  = recordModAction(msg.guild.id, targetId, { action, reason, proof, moderator: moderator.id });
+
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setTitle(`${emoji} ${action} | Case #${caseNum}`)
+    .addFields(
+      { name: '👤 User',       value: targetUser ? `${targetUser.tag} (<@${targetId}>)` : `<@${targetId}> (ID: ${targetId})`, inline: true },
+      { name: '🛡️ Moderator', value: `${moderator.tag}`, inline: true },
+      { name: '📋 Reason',     value: reason || 'Kein Grund angegeben' },
+    );
+
+  if (extra) embed.addFields(extra);
+  if (proof && isImageUrl(proof)) embed.setImage(proof);
+  else if (proof) embed.addFields({ name: '🔗 Proof', value: proof });
+
+  embed.setFooter({ text: `User ID: ${targetId}` }).setTimestamp();
+
+  await sendLog(msg.guild.id, 'moderation', embed);
+
+  const replyEmbed = new EmbedBuilder()
+    .setColor(color)
+    .setDescription(`${emoji} **${action}** ausgeführt | Case #${caseNum}`)
+    .setTimestamp();
+  await msg.reply({ embeds: [replyEmbed] });
+}
+
+async function handleModCommand(msg) {
+  const guildCfg  = cfg.getGuild(msg.guild.id);
+  const prefix     = guildCfg.modPrefix || '!';
+
+  // Parse command name
+  if (!msg.content.startsWith(prefix)) return;
+  const parts   = msg.content.slice(prefix.length).trim().split(/\s+/);
+  const command = parts[0].toLowerCase();
+  const args    = parts.slice(1); // everything after command name
+
+  const MOD_COMMANDS = ['ban','unban','kick','timeout','mute','untimeout','unmute','warn','modlogs'];
+  if (!MOD_COMMANDS.includes(command)) return;
+
+  // Permission check — must have ModerateMembers or BanMembers
+  const member = msg.member;
+  const hasMod = member.permissions.has(PermissionFlagsBits.ModerateMembers) ||
+                 member.permissions.has(PermissionFlagsBits.BanMembers) ||
+                 member.permissions.has(PermissionFlagsBits.KickMembers);
+  if (!hasMod) {
+    return msg.reply({ content: '❌ Du hast keine Berechtigung für Mod-Commands.' });
+  }
+
+  // ── !modlogs [user_id] ────────────────────────────────────
+  if (command === 'modlogs') {
+    const targetId = args[0];
+    if (!targetId) return msg.reply({ content: '❌ Usage: `!modlogs [user_id]`' });
+
+    const actions = guildCfg.modActions?.[targetId] || [];
+    if (!actions.length) return msg.reply({ content: `ℹ️ Keine Mod-Aktionen für <@${targetId}> (ID: ${targetId}).` });
+
+    let targetTag = `ID: ${targetId}`;
+    try { const u = await client.users.fetch(targetId); targetTag = u.tag; } catch {}
+
+    const lines = actions.slice(-20).map(a => {
+      const d = new Date(a.timestamp).toLocaleDateString('de-DE');
+      return `**Case #${a.case}** — ${a.action} — ${d}\n> ${a.reason || 'Kein Grund'}`;
+    }).join('\n\n');
+
+    const embed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle(`📋 Modlogs für ${targetTag}`)
+      .setDescription(lines.slice(0, 4000))
+      .setFooter({ text: `${actions.length} Aktionen gesamt | User ID: ${targetId}` })
+      .setTimestamp();
+
+    return msg.reply({ embeds: [embed] });
+  }
+
+  // ── All other commands: first arg = user_id ───────────────
+  const targetId = args[0];
+  if (!targetId) return msg.reply({ content: `❌ Usage: \`${prefix}${command} [user_id] [reason] [proof]\`` });
+
+  let targetUser = null;
+  try { targetUser = await client.users.fetch(targetId); } catch {}
+
+  // ── !ban ─────────────────────────────────────────────────
+  if (command === 'ban') {
+    if (!member.permissions.has(PermissionFlagsBits.BanMembers))
+      return msg.reply({ content: '❌ Du benötigst die `BAN_MEMBERS` Berechtigung.' });
+
+    // proof is last arg if it looks like URL or image, else no proof
+    let proof, reason;
+    if (args.length >= 3 && isImageUrl(args[args.length - 1])) {
+      proof  = args[args.length - 1];
+      reason = args.slice(1, -1).join(' ');
+    } else {
+      proof  = null;
+      reason = args.slice(1).join(' ');
+    }
+
+    try {
+      await msg.guild.members.ban(targetId, { reason: reason || 'Kein Grund angegeben', deleteMessageSeconds: 0 });
+    } catch (e) {
+      return msg.reply({ content: `❌ Ban fehlgeschlagen: ${e.message}` });
+    }
+    await postModLog(msg, {
+      action: 'Ban', color: 0xED4245, emoji: '🔨',
+      targetUser, targetId, moderator: msg.author,
+      reason, proof,
+    });
+  }
+
+  // ── !unban ───────────────────────────────────────────────
+  else if (command === 'unban') {
+    if (!member.permissions.has(PermissionFlagsBits.BanMembers))
+      return msg.reply({ content: '❌ Du benötigst die `BAN_MEMBERS` Berechtigung.' });
+
+    const reason = args.slice(1).join(' ');
+    try {
+      await msg.guild.bans.remove(targetId, reason || 'Kein Grund angegeben');
+    } catch (e) {
+      return msg.reply({ content: `❌ Unban fehlgeschlagen: ${e.message}` });
+    }
+    await postModLog(msg, {
+      action: 'Unban', color: 0x57F287, emoji: '✅',
+      targetUser, targetId, moderator: msg.author,
+      reason, proof: null,
+    });
+  }
+
+  // ── !kick ────────────────────────────────────────────────
+  else if (command === 'kick') {
+    if (!member.permissions.has(PermissionFlagsBits.KickMembers))
+      return msg.reply({ content: '❌ Du benötigst die `KICK_MEMBERS` Berechtigung.' });
+
+    let proof, reason;
+    if (args.length >= 3 && isImageUrl(args[args.length - 1])) {
+      proof  = args[args.length - 1];
+      reason = args.slice(1, -1).join(' ');
+    } else {
+      proof  = null;
+      reason = args.slice(1).join(' ');
+    }
+
+    try {
+      const gm = await msg.guild.members.fetch(targetId);
+      await gm.kick(reason || 'Kein Grund angegeben');
+    } catch (e) {
+      return msg.reply({ content: `❌ Kick fehlgeschlagen: ${e.message}` });
+    }
+    await postModLog(msg, {
+      action: 'Kick', color: 0xFEE75C, emoji: '👢',
+      targetUser, targetId, moderator: msg.author,
+      reason, proof,
+    });
+  }
+
+  // ── !timeout / !mute ─────────────────────────────────────
+  else if (command === 'timeout' || command === 'mute') {
+    if (!member.permissions.has(PermissionFlagsBits.ModerateMembers))
+      return msg.reply({ content: '❌ Du benötigst die `MODERATE_MEMBERS` Berechtigung.' });
+
+    // format: !timeout [user_id] [duration] [reason] [proof]
+    const durationStr = args[1];
+    const ms = parseDuration(durationStr);
+    if (!ms) return msg.reply({ content: `❌ Ungültige Dauer. Beispiel: \`${prefix}timeout 123456789 1h Spam\`` });
+
+    let proof, reason;
+    if (args.length >= 4 && isImageUrl(args[args.length - 1])) {
+      proof  = args[args.length - 1];
+      reason = args.slice(2, -1).join(' ');
+    } else {
+      proof  = null;
+      reason = args.slice(2).join(' ');
+    }
+
+    try {
+      const gm = await msg.guild.members.fetch(targetId);
+      await gm.timeout(ms, reason || 'Kein Grund angegeben');
+    } catch (e) {
+      return msg.reply({ content: `❌ Timeout fehlgeschlagen: ${e.message}` });
+    }
+    await postModLog(msg, {
+      action: 'Timeout', color: 0xEB459E, emoji: '⏱️',
+      targetUser, targetId, moderator: msg.author,
+      reason, proof,
+      extra: { name: '⏳ Dauer', value: formatDuration(ms), inline: true },
+    });
+  }
+
+  // ── !untimeout / !unmute ─────────────────────────────────
+  else if (command === 'untimeout' || command === 'unmute') {
+    if (!member.permissions.has(PermissionFlagsBits.ModerateMembers))
+      return msg.reply({ content: '❌ Du benötigst die `MODERATE_MEMBERS` Berechtigung.' });
+
+    const reason = args.slice(1).join(' ');
+    try {
+      const gm = await msg.guild.members.fetch(targetId);
+      await gm.timeout(null, reason || 'Kein Grund angegeben');
+    } catch (e) {
+      return msg.reply({ content: `❌ Untimeout fehlgeschlagen: ${e.message}` });
+    }
+    await postModLog(msg, {
+      action: 'Untimeout', color: 0x57F287, emoji: '🔓',
+      targetUser, targetId, moderator: msg.author,
+      reason, proof: null,
+    });
+  }
+
+  // ── !warn ────────────────────────────────────────────────
+  else if (command === 'warn') {
+    let proof, reason;
+    if (args.length >= 3 && isImageUrl(args[args.length - 1])) {
+      proof  = args[args.length - 1];
+      reason = args.slice(1, -1).join(' ');
+    } else {
+      proof  = null;
+      reason = args.slice(1).join(' ');
+    }
+    if (!reason) return msg.reply({ content: `❌ Usage: \`${prefix}warn [user_id] [reason]\`` });
+
+    // DM the warned user
+    if (targetUser) {
+      try {
+        await targetUser.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(0xFEE75C)
+              .setTitle(`⚠️ Verwarnung auf ${msg.guild.name}`)
+              .setDescription(`**Grund:** ${reason}`)
+              .setTimestamp(),
+          ],
+        });
+      } catch {} // DMs may be closed
+    }
+
+    await postModLog(msg, {
+      action: 'Warn', color: 0xFEE75C, emoji: '⚠️',
+      targetUser, targetId, moderator: msg.author,
+      reason, proof,
+    });
+  }
+}
 
 // ── Slash command handler ────────────────────────────────────
 async function handleSlashCommand(interaction) {
