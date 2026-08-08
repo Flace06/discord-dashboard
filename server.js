@@ -462,8 +462,9 @@ client.on('messageCreate', async msg => {
   for (const cmd of customCmds) {
     if (!cmd.trigger || !cmd.response) continue;
     if (!msg.content.startsWith(cmd.trigger)) continue;
-    // Role check
-    if (cmd.requireRole && !msg.member?.roles.cache.has(cmd.requireRole)) continue;
+    // Role check (allowedRoles array, fallback to old requireRole)
+    const allowed = cmd.allowedRoles?.length ? cmd.allowedRoles : (cmd.requireRole ? [cmd.requireRole] : []);
+    if (allowed.length && !allowed.some(rid => msg.member?.roles.cache.has(rid))) continue;
     // Delete message
     if (cmd.deleteMessage) msg.delete().catch(() => {});
     // Send response
@@ -656,9 +657,10 @@ async function handleModCommand(msg) {
     return msg.reply({ content: '❌ Du hast keine Berechtigung für Mod-Commands.' });
   }
 
-  // Check requireRole if configured
-  const reqRole = modCmds[canonicalCmd]?.requireRole;
-  if (reqRole && !member.roles.cache.has(reqRole)) {
+  // Check allowedRoles if configured (fallback to old requireRole)
+  const modCmdCfg = modCmds[canonicalCmd] || {};
+  const allowedRoles = modCmdCfg.allowedRoles?.length ? modCmdCfg.allowedRoles : (modCmdCfg.requireRole ? [modCmdCfg.requireRole] : []);
+  if (allowedRoles.length && !allowedRoles.some(rid => member.roles.cache.has(rid))) {
     return msg.reply({ content: '❌ Du hast nicht die erforderliche Rolle für diesen Command.' });
   }
 

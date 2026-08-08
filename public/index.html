@@ -3350,6 +3350,54 @@ function renderCommandsPage() {
   renderCustomCommandList();
 }
 
+// ── Shared role-pill UI helper ────────────────────────────────
+// Renders an interactive multi-role picker into `container`.
+// `selectedIds` = initial array of role IDs.
+// `ns` = namespace string to avoid ID collisions between modals.
+// Returns { getSelected } to read the current selection on save.
+function buildRolePicker(container, selectedIds, ns) {
+  const allRoles = (S.roles || []).filter(r => r.name !== '@everyone');
+  let selected = [...(selectedIds || [])];
+
+  function render() {
+    const pills = selected.map(id => {
+      const r = allRoles.find(x => x.id === id);
+      const color = r?.color ? '#' + r.color.toString(16).padStart(6,'0') : 'var(--txt3)';
+      return `<span style="display:inline-flex;align-items:center;gap:4px;border-radius:12px;padding:2px 10px;font-size:12px;background:var(--bg);border:1px solid var(--border);color:var(--txt2)">
+        <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block"></span>
+        ${esc(r?.name || id)}
+        <button data-remove="${id}" style="background:none;border:none;color:var(--txt3);cursor:pointer;font-size:14px;line-height:1;padding:0 2px">×</button>
+      </span>`;
+    }).join('');
+
+    const available = allRoles.filter(r => !selected.includes(r.id));
+    const opts = available.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
+
+    container.innerHTML = `
+      <div id="${ns}-pills" style="display:flex;flex-wrap:wrap;gap:6px;min-height:24px;margin-bottom:8px">
+        ${pills || '<span style="font-size:12px;color:var(--txt3);font-style:italic">Alle Mitglieder können diesen Command nutzen</span>'}
+      </div>
+      <div style="display:flex;gap:8px">
+        <select id="${ns}-role-add" class="select-sm" style="flex:1" ${available.length?'':'disabled'}>
+          <option value="">+ Rolle hinzufügen…</option>
+          ${opts}
+        </select>
+        <button class="btn btn-ghost" id="${ns}-role-btn" style="padding:4px 12px;font-size:12px">Hinzufügen</button>
+      </div>`;
+
+    container.querySelectorAll('[data-remove]').forEach(btn => {
+      btn.addEventListener('click', () => { selected = selected.filter(id => id !== btn.dataset.remove); render(); });
+    });
+    container.querySelector(`#${ns}-role-btn`)?.addEventListener('click', () => {
+      const sel = container.querySelector(`#${ns}-role-add`);
+      if (sel?.value && !selected.includes(sel.value)) { selected.push(sel.value); render(); }
+    });
+  }
+
+  render();
+  return { getSelected: () => selected };
+}
+
 function openModCmdEditor(key) {
   const cfg    = S.commandsConfig || {};
   const mc     = (cfg.modCommands || {})[key] || {};
@@ -3399,12 +3447,9 @@ function openModCmdEditor(key) {
         <input id="mce-aliases" class="modal-input" placeholder="z.B. b, verbannen" value="${esc((mc.aliases||[]).join(', '))}" style="margin-bottom:6px;font-family:monospace">
         <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">Zusätzliche Trigger neben dem Standard-Command</div>
 
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Nur für Rolle (optional)</label>
-        <select id="mce-role" class="modal-input" style="cursor:pointer;margin-bottom:6px">
-          <option value="">Alle mit Berechtigung</option>
-          ${roles.map(r=>`<option value="${r.id}" ${mc.requireRole===r.id?'selected':''}>${esc(r.name)}</option>`).join('')}
-        </select>
-        <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">Nur Mitglieder mit dieser Rolle können den Command nutzen</div>
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:6px;display:block">Erlaubte Rollen (optional)</label>
+        <div id="mce-role-picker" style="margin-bottom:4px"></div>
+        <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">Leer = alle mit Berechtigung können den Command nutzen</div>
 
         ${hasReply ? `
         <label style="font-size:12px;color:var(--txt3);margin-bottom:8px;display:block">Bot-Antwort Typ</label>
@@ -3483,6 +3528,10 @@ function openModCmdEditor(key) {
   document.body.appendChild(bg);
   bg.querySelector('#mce-cancel').onclick = () => bg.remove();
   bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
+
+  // Role picker
+  const initRoles = mc.allowedRoles?.length ? mc.allowedRoles : (mc.requireRole ? [mc.requireRole] : []);
+  const rolePicker = buildRolePicker(bg.querySelector('#mce-role-picker'), initRoles, 'mce');
 
   if (hasReply) {
     // Type tab switching
@@ -3570,9 +3619,9 @@ function openModCmdEditor(key) {
     }
 
     const saved = {
-      enabled:     bg.querySelector('#mce-enabled').checked,
-      aliases:     aliasRaw ? aliasRaw.split(',').map(a=>a.trim()).filter(Boolean) : [],
-      requireRole: bg.querySelector('#mce-role').value || null,
+      enabled:      bg.querySelector('#mce-enabled').checked,
+      aliases:      aliasRaw ? aliasRaw.split(',').map(a=>a.trim()).filter(Boolean) : [],
+      allowedRoles: rolePicker.getSelected(),
       successType,
       successMsg:  '',
       successEmbed: {},
@@ -3672,11 +3721,9 @@ function openCommandEditor(cmdId) {
           <input id="ce-embed-color" type="color" value="${cmd?.embedColor||'#5865f2'}" style="height:36px;border-radius:8px;border:1px solid var(--border);background:transparent;cursor:pointer;margin-bottom:14px">
         </div>
 
-        <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Nur für Rolle (optional)</label>
-        <select id="ce-role" class="modal-input" style="cursor:pointer;margin-bottom:4px">
-          <option value="">Alle Mitglieder</option>
-          ${roles.map(r => `<option value="${r.id}" ${cmd?.requireRole===r.id?'selected':''}>${esc(r.name)}</option>`).join('')}
-        </select>
+        <label style="font-size:12px;color:var(--txt3);margin-bottom:6px;display:block">Erlaubte Rollen (optional)</label>
+        <div id="ce-role-picker" style="margin-bottom:4px"></div>
+        <div style="font-size:11px;color:var(--txt3)">Leer = alle Mitglieder können den Command nutzen</div>
 
       </div>
       <div class="modal-lg-foot">
@@ -3691,6 +3738,10 @@ function openCommandEditor(cmdId) {
   bg.querySelector('#ce-embed').addEventListener('change', e => {
     bg.querySelector('#ce-embed-fields').style.display = e.target.checked ? '' : 'none';
   });
+
+  // Role picker
+  const ceInitRoles = cmd?.allowedRoles?.length ? cmd.allowedRoles : (cmd?.requireRole ? [cmd.requireRole] : []);
+  const ceRolePicker = buildRolePicker(bg.querySelector('#ce-role-picker'), ceInitRoles, 'ce');
 
   bg.querySelector('#ce-cancel').onclick = () => bg.remove();
   bg.addEventListener('click', e => { if (e.target === bg) bg.remove(); });
@@ -3708,7 +3759,7 @@ function openCommandEditor(cmdId) {
       embedTitle:   bg.querySelector('#ce-embed-title').value.trim(),
       embedColor:   bg.querySelector('#ce-embed-color').value,
       deleteMessage:bg.querySelector('#ce-delete').checked,
-      requireRole:  bg.querySelector('#ce-role').value || null,
+      allowedRoles: ceRolePicker.getSelected(),
     };
 
     if (!S.commandsConfig) S.commandsConfig = {};
