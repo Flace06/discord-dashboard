@@ -467,6 +467,28 @@ function isImageUrl(str) {
          /^https?:\/\/media\.discordapp\.net\//i.test(str);
 }
 
+/**
+ * Extrahiert Proof aus einem Command:
+ *  1. Letztes Argument wenn es eine Bild-URL ist
+ *  2. Erstes angehängtes Bild an der Nachricht (Screenshot)
+ *  3. Sonst null
+ * Gibt { proof, argsWithoutProof } zurück.
+ */
+function getProof(msg, args, startIdx = 1) {
+  // 1. Letztes Argument ist eine URL?
+  if (args.length > startIdx && isImageUrl(args[args.length - 1])) {
+    return { proof: args[args.length - 1], argsWithoutProof: args.slice(0, -1) };
+  }
+  // 2. Angehängtes Bild (Screenshot)?
+  const attachment = msg.attachments.find(a =>
+    a.contentType?.startsWith('image/') || isImageUrl(a.url)
+  );
+  if (attachment) {
+    return { proof: attachment.url, argsWithoutProof: args };
+  }
+  return { proof: null, argsWithoutProof: args };
+}
+
 /** Parse a duration string like "1d", "2h30m", "60s" → milliseconds */
 function parseDuration(str) {
   if (!str) return null;
@@ -594,15 +616,8 @@ async function handleModCommand(msg) {
     if (!member.permissions.has(PermissionFlagsBits.BanMembers))
       return msg.reply({ content: '❌ Du benötigst die `BAN_MEMBERS` Berechtigung.' });
 
-    // proof is last arg if it looks like URL or image, else no proof
-    let proof, reason;
-    if (args.length >= 3 && isImageUrl(args[args.length - 1])) {
-      proof  = args[args.length - 1];
-      reason = args.slice(1, -1).join(' ');
-    } else {
-      proof  = null;
-      reason = args.slice(1).join(' ');
-    }
+    const { proof, argsWithoutProof: banArgs } = getProof(msg, args, 1);
+    const reason = banArgs.slice(1).join(' ');
 
     try {
       await msg.guild.members.ban(targetId, { reason: reason || 'Kein Grund angegeben', deleteMessageSeconds: 0 });
@@ -639,14 +654,8 @@ async function handleModCommand(msg) {
     if (!member.permissions.has(PermissionFlagsBits.KickMembers))
       return msg.reply({ content: '❌ Du benötigst die `KICK_MEMBERS` Berechtigung.' });
 
-    let proof, reason;
-    if (args.length >= 3 && isImageUrl(args[args.length - 1])) {
-      proof  = args[args.length - 1];
-      reason = args.slice(1, -1).join(' ');
-    } else {
-      proof  = null;
-      reason = args.slice(1).join(' ');
-    }
+    const { proof, argsWithoutProof: kickArgs } = getProof(msg, args, 1);
+    const reason = kickArgs.slice(1).join(' ');
 
     try {
       const gm = await msg.guild.members.fetch(targetId);
@@ -666,19 +675,13 @@ async function handleModCommand(msg) {
     if (!member.permissions.has(PermissionFlagsBits.ModerateMembers))
       return msg.reply({ content: '❌ Du benötigst die `MODERATE_MEMBERS` Berechtigung.' });
 
-    // format: !timeout [user_id] [duration] [reason] [proof]
+    // format: !timeout [user_id] [duration] [reason] [screenshot/proof-url]
     const durationStr = args[1];
     const ms = parseDuration(durationStr);
     if (!ms) return msg.reply({ content: `❌ Ungültige Dauer. Beispiel: \`${prefix}timeout 123456789 1h Spam\`` });
 
-    let proof, reason;
-    if (args.length >= 4 && isImageUrl(args[args.length - 1])) {
-      proof  = args[args.length - 1];
-      reason = args.slice(2, -1).join(' ');
-    } else {
-      proof  = null;
-      reason = args.slice(2).join(' ');
-    }
+    const { proof, argsWithoutProof: toArgs } = getProof(msg, args, 2);
+    const reason = toArgs.slice(2).join(' ');
 
     try {
       const gm = await msg.guild.members.fetch(targetId);
@@ -715,14 +718,8 @@ async function handleModCommand(msg) {
 
   // ── !warn ────────────────────────────────────────────────
   else if (command === 'warn') {
-    let proof, reason;
-    if (args.length >= 3 && isImageUrl(args[args.length - 1])) {
-      proof  = args[args.length - 1];
-      reason = args.slice(1, -1).join(' ');
-    } else {
-      proof  = null;
-      reason = args.slice(1).join(' ');
-    }
+    const { proof, argsWithoutProof: warnArgs } = getProof(msg, args, 1);
+    const reason = warnArgs.slice(1).join(' ');
     if (!reason) return msg.reply({ content: `❌ Usage: \`${prefix}warn [user_id] [reason]\`` });
 
     // DM the warned user
