@@ -972,21 +972,46 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
 
         <!-- ── Panel ── -->
         <div id="tk-tab-panel" class="hidden">
-          <div style="max-width:520px">
-            <div class="tk-sec">
-              <div class="tk-sec-title">Panel konfigurieren</div>
-              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Kategorie</label>
-              <select class="select-sm" id="panel-cat-select" onchange="updatePanelPreview()" style="margin-bottom:12px"></select>
-              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Kanal</label>
-              <select class="select-sm" id="panel-ch-select" style="margin-bottom:16px"></select>
-              <button class="btn btn-primary" style="width:100%" onclick="doPostPanel()">📌 Panel senden</button>
-            </div>
-            <div class="tk-sec">
-              <div class="tk-sec-title">Vorschau</div>
-              <div id="panel-preview-wrap">
-                <div style="color:var(--txt3);font-size:13px">Wähle eine Kategorie aus</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px">
+
+            <!-- Left: config -->
+            <div>
+              <div class="tk-sec" style="margin-bottom:16px">
+                <div class="tk-sec-title">Panel-Embed</div>
+                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Titel</label>
+                <input id="panel-title" class="modal-input" placeholder="z.B. 🎫 Support" oninput="updatePanelPreview()" style="margin-bottom:10px">
+                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Beschreibung</label>
+                <textarea id="panel-desc" class="modal-input" rows="3" placeholder="Klicke einen Button um ein Ticket zu öffnen…" oninput="updatePanelPreview()" style="resize:vertical;margin-bottom:10px"></textarea>
+                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Farbe</label>
+                <input id="panel-color" type="color" value="#5865f2" oninput="updatePanelPreview()" style="height:36px;width:100%;border-radius:8px;border:1px solid var(--border);background:transparent;cursor:pointer">
+              </div>
+
+              <div class="tk-sec" style="margin-bottom:16px">
+                <div class="tk-sec-title">Kategorien (Buttons)</div>
+                <div style="font-size:12px;color:var(--txt3);margin-bottom:10px">Wähle welche Kategorien als Buttons angezeigt werden (max. 5):</div>
+                <div id="panel-cat-checkboxes" style="display:flex;flex-direction:column;gap:8px">
+                  <div style="color:var(--txt3);font-size:13px">Keine Kategorien vorhanden.</div>
+                </div>
+              </div>
+
+              <div class="tk-sec">
+                <div class="tk-sec-title">Panel senden</div>
+                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Kanal</label>
+                <select class="select-sm" id="panel-ch-select" style="margin-bottom:16px;width:100%"></select>
+                <button class="btn btn-primary" style="width:100%" onclick="doPostPanel()">📌 Panel senden</button>
               </div>
             </div>
+
+            <!-- Right: preview -->
+            <div>
+              <div class="tk-sec" style="position:sticky;top:20px">
+                <div class="tk-sec-title">Vorschau</div>
+                <div id="panel-preview-wrap">
+                  <div style="color:var(--txt3);font-size:13px">Wähle Kategorien aus</div>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
 
@@ -1141,6 +1166,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
 });
 
 document.getElementById('back-to-servers').addEventListener('click', () => {
+  tkStopPolling();
   document.getElementById('app').classList.add('hidden');
   document.getElementById('server-page').classList.remove('hidden');
   S.guild = null; S.guildFull = null; S.bans = null;
@@ -2648,6 +2674,27 @@ async function saveArConfig() {
 ══════════════════════════════════════════════ */
 
 let tkCurrentTab = 'categories';
+let tkPollTimer  = null;
+
+function tkStartPolling() {
+  tkStopPolling();
+  if (tkCurrentTab !== 'active') return;
+  tkPollTimer = setInterval(async () => {
+    if (tkCurrentTab !== 'active' || document.hidden) return;
+    try {
+      const fresh = await api(`/api/guilds/${S.guild.id}/tickets`);
+      // Only re-render if something changed
+      if (JSON.stringify(fresh) !== JSON.stringify(S.tickets)) {
+        S.tickets = fresh;
+        renderTkActiveTickets();
+      }
+    } catch {}
+  }, 15000);
+}
+
+function tkStopPolling() {
+  if (tkPollTimer) { clearInterval(tkPollTimer); tkPollTimer = null; }
+}
 
 function switchTicketTab(tab, btn) {
   tkCurrentTab = tab;
@@ -2658,6 +2705,9 @@ function switchTicketTab(tab, btn) {
     if (el) el.classList.toggle('hidden', t !== tab);
   });
   renderCurrentTicketTab();
+  // Start/stop polling based on tab
+  if (tab === 'active') tkStartPolling();
+  else tkStopPolling();
 }
 
 async function loadTicketsPage() {
@@ -3146,16 +3196,30 @@ async function saveTkConfig() {
 /* ── Panel tab ───────────────────────────────── */
 function renderTkPanel() {
   const cfg = S.ticketConfig;
-  const catSel = document.getElementById('panel-cat-select');
-  const chSel  = document.getElementById('panel-ch-select');
-  if (!cfg || !catSel) return;
+  const chSel = document.getElementById('panel-ch-select');
+  if (!cfg || !chSel) return;
 
-  // Populate category select
-  catSel.innerHTML = (cfg.categories || []).map(cat =>
-    `<option value="${esc(cat.id)}">${esc(cat.emoji || '🎫')} ${esc(cat.name)}</option>`
-  ).join('') || '<option value="">Keine Kategorien</option>';
+  // Category checkboxes
+  const catBox = document.getElementById('panel-cat-checkboxes');
+  const cats   = cfg.categories || [];
+  if (catBox) {
+    if (!cats.length) {
+      catBox.innerHTML = '<div style="color:var(--txt3);font-size:13px">Erstelle zuerst Kategorien.</div>';
+    } else {
+      catBox.innerHTML = cats.map(cat => `
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 10px;border-radius:8px;background:var(--bg3);border:1px solid var(--border)">
+          <input type="checkbox" class="panel-cat-cb" value="${esc(cat.id)}" onchange="updatePanelPreview()" style="width:16px;height:16px;cursor:pointer">
+          <span style="font-size:18px">${esc(cat.emoji||'🎫')}</span>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600;color:var(--txt)">${esc(cat.name)}</div>
+            <div style="font-size:11px;color:var(--txt3)">${esc(cat.description||'')}</div>
+          </div>
+          <div style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg);color:var(--txt3)">${esc(cat.buttonLabel||'Ticket erstellen')}</div>
+        </label>`).join('');
+    }
+  }
 
-  // Populate channel select
+  // Channel select
   const textChs = (S.channels || []).filter(c => c.type === 0 || c.type === 5);
   chSel.innerHTML = '<option value="">– Kanal auswählen –</option>' +
     textChs.map(c => `<option value="${esc(c.id)}"># ${esc(c.name)}</option>`).join('');
@@ -3164,40 +3228,53 @@ function renderTkPanel() {
 }
 
 function updatePanelPreview() {
-  const cfg = S.ticketConfig;
-  if (!cfg) return;
-  const catId = document.getElementById('panel-cat-select')?.value;
-  const cat = (cfg.categories || []).find(c => c.id === catId);
+  const cfg  = S.ticketConfig;
   const wrap = document.getElementById('panel-preview-wrap');
   if (!wrap) return;
-  if (!cat) { wrap.innerHTML = '<div style="color:var(--txt3);font-size:13px">Wähle eine Kategorie aus</div>'; return; }
 
-  const color = '#' + (cat.panelColor || 5814783).toString(16).padStart(6, '0');
+  const selectedIds = [...document.querySelectorAll('.panel-cat-cb:checked')].map(cb => cb.value);
+  const cats = (cfg?.categories || []).filter(c => selectedIds.includes(c.id));
+
+  if (!cats.length) {
+    wrap.innerHTML = '<div style="color:var(--txt3);font-size:13px">Wähle mindestens eine Kategorie aus</div>';
+    return;
+  }
+
+  const title  = document.getElementById('panel-title')?.value.trim()  || '🎫 Support';
+  const desc   = document.getElementById('panel-desc')?.value.trim()   || 'Klicke einen Button um ein Ticket zu öffnen.';
+  const color  = document.getElementById('panel-color')?.value         || '#5865f2';
+
   const btnColors = { 1:'var(--blurple)', 2:'#4f545c', 3:'var(--green2)', 4:'var(--red2)' };
-  const btnColor = btnColors[cat.buttonStyle || 1] || 'var(--blurple)';
+  const btnHtml = cats.slice(0, 5).map(cat => {
+    const bg = btnColors[cat.buttonStyle || 1] || 'var(--blurple)';
+    return `<div style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:4px;font-size:13px;font-weight:600;background:${bg};color:#fff;white-space:nowrap">
+      ${cat.buttonEmoji ? esc(cat.buttonEmoji) + ' ' : ''}${esc(cat.buttonLabel || cat.name)}
+    </div>`;
+  }).join('');
 
   wrap.innerHTML = `
-    <div style="display:flex;gap:0;overflow:hidden;border-radius:4px;background:var(--bg3);border-left:4px solid ${color}">
-      <div style="padding:14px 16px;flex:1">
-        <div style="font-weight:700;font-size:15px;color:var(--txt);margin-bottom:6px">${esc(cat.panelTitle || cat.name)}</div>
-        <div style="font-size:13px;color:var(--txt2);line-height:1.5;margin-bottom:12px">${esc(cat.panelDescription || '')}</div>
-        <div style="display:inline-block;padding:8px 18px;border-radius:4px;font-size:14px;font-weight:600;background:${btnColor};color:#fff">
-          ${esc(cat.buttonEmoji || '')} ${esc(cat.buttonLabel || 'Ticket erstellen')}
-        </div>
-      </div>
-    </div>`;
+    <div style="border-radius:6px;background:var(--bg3);border-left:4px solid ${color};padding:14px 16px;margin-bottom:10px">
+      <div style="font-weight:700;font-size:15px;color:var(--txt);margin-bottom:6px">${esc(title)}</div>
+      <div style="font-size:13px;color:var(--txt2);line-height:1.5;white-space:pre-wrap">${esc(desc)}</div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">${btnHtml}</div>
+    ${cats.length > 5 ? '<div style="font-size:11px;color:var(--red2);margin-top:6px">⚠️ Nur die ersten 5 Kategorien werden als Buttons angezeigt.</div>' : ''}`;
 }
 
 async function doPostPanel() {
-  const channelId  = document.getElementById('panel-ch-select')?.value;
-  const categoryId = document.getElementById('panel-cat-select')?.value;
-  if (!channelId)  { toast('Bitte einen Kanal auswählen.', 'err'); return; }
-  if (!categoryId) { toast('Bitte eine Kategorie auswählen.', 'err'); return; }
+  const channelId   = document.getElementById('panel-ch-select')?.value;
+  const categoryIds = [...document.querySelectorAll('.panel-cat-cb:checked')].map(cb => cb.value);
+  const panelTitle  = document.getElementById('panel-title')?.value.trim();
+  const panelDesc   = document.getElementById('panel-desc')?.value.trim();
+  const panelColor  = document.getElementById('panel-color')?.value;
+
+  if (!channelId)         { toast('Bitte einen Kanal auswählen.', 'err'); return; }
+  if (!categoryIds.length){ toast('Bitte mindestens eine Kategorie auswählen.', 'err'); return; }
   try {
     await api(`/api/guilds/${S.guild.id}/panel`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channelId, categoryId }),
+      body: JSON.stringify({ channelId, categoryIds, panelTitle, panelDescription: panelDesc, panelColor }),
     });
     toast('Panel wurde gesendet! ✅', 'ok');
   } catch (e) { toast('Fehler: ' + e.message, 'err'); }

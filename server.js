@@ -1467,19 +1467,32 @@ function buildTicketButtons(cat, guildCfg) {
 }
 
 // ── Post panel to channel ─────────────────────────────────────
-async function postPanel(channel, category) {
+// categories: array of category objects
+// panelTitle/Description/Color: optional overrides for the embed
+async function postPanel(channel, categories, panelTitle, panelDescription, panelColor) {
+  if (!Array.isArray(categories)) categories = [categories]; // backward compat
+
+  const firstCat = categories[0] || {};
   const embed = new EmbedBuilder()
-    .setTitle(category.panelTitle || `${category.emoji || '🎫'} ${category.name}`)
-    .setDescription(category.panelDescription || 'Klicke den Button, um ein Ticket zu erstellen.')
-    .setColor(category.panelColor || 0x5865f2);
-  const btn = new ButtonBuilder()
-    .setCustomId(`ticket_create_${category.id}`)
-    .setLabel(category.buttonLabel || 'Ticket erstellen')
-    .setStyle(category.buttonStyle || ButtonStyle.Primary);
-  if (category.buttonEmoji) {
-    try { btn.setEmoji(category.buttonEmoji); } catch {}
+    .setTitle(panelTitle || firstCat.panelTitle || `${firstCat.emoji || '🎫'} ${firstCat.name || 'Support'}`)
+    .setDescription(panelDescription || (categories.length === 1 ? firstCat.panelDescription : 'Wähle eine Kategorie aus:') || 'Klicke den Button, um ein Ticket zu erstellen.')
+    .setColor(panelColor || firstCat.panelColor || 0x5865f2);
+
+  const buttons = categories.slice(0, 5).map(cat => {
+    const btn = new ButtonBuilder()
+      .setCustomId(`ticket_create_${cat.id}`)
+      .setLabel(cat.buttonLabel || cat.name || 'Ticket erstellen')
+      .setStyle(cat.buttonStyle || ButtonStyle.Primary);
+    if (cat.buttonEmoji) { try { btn.setEmoji(cat.buttonEmoji); } catch {} }
+    return btn;
+  });
+
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 5) {
+    rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
   }
-  await channel.send({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)] });
+
+  await channel.send({ embeds: [embed], components: rows });
 }
 
 // ── Init DB + Login bot ───────────────────────────────────────
@@ -1787,14 +1800,16 @@ app.get('/api/guilds/:id/tickets', requireAuth, (req, res) => {
 
 // POST panel to channel
 app.post('/api/guilds/:id/panel', requireAuth, async (req, res) => {
-  const { channelId, categoryId } = req.body;
-  if (!channelId || !categoryId) return res.status(400).json({ error: 'channelId und categoryId erforderlich' });
+  const { channelId, categoryIds, categoryId, panelTitle, panelDescription, panelColor } = req.body;
+  const ids = categoryIds?.length ? categoryIds : (categoryId ? [categoryId] : null);
+  if (!channelId || !ids?.length) return res.status(400).json({ error: 'channelId und categoryIds erforderlich' });
   try {
     const guildCfg = cfg.getGuild(req.params.id);
-    const cat = guildCfg.categories.find(c => c.id === categoryId);
-    if (!cat) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
+    const cats = ids.map(id => guildCfg.categories.find(c => c.id === id)).filter(Boolean);
+    if (!cats.length) return res.status(404).json({ error: 'Keine gültigen Kategorien gefunden' });
     const channel = await client.channels.fetch(channelId);
-    await postPanel(channel, cat);
+    const color = panelColor ? parseInt(panelColor.replace('#',''), 16) : null;
+    await postPanel(channel, cats, panelTitle || '', panelDescription || '', color);
     res.json({ success: true });
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
