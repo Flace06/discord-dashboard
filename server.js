@@ -1301,13 +1301,22 @@ async function postPanel(channel, category) {
   await channel.send({ embeds: [embed], components: [new ActionRowBuilder().addComponents(btn)] });
 }
 
-// ── Login bot ─────────────────────────────────────────────────
-if (BOT_TOKEN) {
-  client.login(BOT_TOKEN).catch(e => {
-    console.warn('⚠️  Bot-Login fehlgeschlagen:', e.message);
-    console.warn('   → Prüfe den BOT_TOKEN in den Umgebungsvariablen.');
-  });
-}
+// ── Init DB + Login bot ───────────────────────────────────────
+(async () => {
+  try {
+    await cfg.init();
+  } catch (e) {
+    console.error('❌ DB-Initialisierung fehlgeschlagen:', e.message);
+    console.error('   → Prüfe DATABASE_URL in den Umgebungsvariablen.');
+    process.exit(1);
+  }
+  if (BOT_TOKEN) {
+    client.login(BOT_TOKEN).catch(e => {
+      console.warn('⚠️  Bot-Login fehlgeschlagen:', e.message);
+      console.warn('   → Prüfe den BOT_TOKEN in den Umgebungsvariablen.');
+    });
+  }
+})();
 
 // ════════════════════════════════════════════════════════════
 //  EXPRESS MIDDLEWARE
