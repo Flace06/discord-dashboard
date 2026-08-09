@@ -601,6 +601,7 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
 
       <div class="nav-label">Automatisierung</div>
       <div class="nav-item" data-page="autorole"><span class="ni">🤖</span> Autorole</div>
+      <div class="nav-item" data-page="invitetracker"><span class="ni">🔗</span> Invite Tracker</div>
       <div class="nav-label">Logging</div>
       <div class="nav-item" data-page="serverlog"><span class="ni">📋</span> Server-Log</div>
     </nav>
@@ -875,6 +876,64 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
         <div style="margin-bottom:12px;font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em">Regeln</div>
         <div id="ar-rules-list"><div class="loading"><div class="spin"></div> Laden…</div></div>
 
+      </div>
+    </div>
+
+    <!-- INVITE TRACKER -->
+    <div id="page-invitetracker" class="hidden">
+      <div class="pg-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <h1>🔗 Invite Tracker</h1>
+          <p>Verfolge wer neue Mitglieder einlädt und sende eine Nachricht</p>
+        </div>
+        <button class="btn btn-primary" onclick="saveInviteTrackerConfig()">💾 Speichern</button>
+      </div>
+      <div class="pg-body">
+        <div class="tk-sec" style="max-width:780px;margin-bottom:20px">
+          <div class="tk-sec-title">Einstellungen</div>
+
+          <div class="tk-row">
+            <div>
+              <div class="tk-lbl">Invite Tracker aktiviert</div>
+              <div class="tk-sub">Nachrichten beim Beitreten eines Mitglieds senden</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="it-enabled"><span class="toggle-slider"></span></label>
+          </div>
+
+          <div class="tk-row">
+            <div style="flex:1">
+              <div class="tk-lbl">Log-Kanal</div>
+              <div class="tk-sub">In diesen Kanal werden die Nachrichten geschickt</div>
+            </div>
+            <select id="it-channel" class="modal-input" style="width:220px">
+              <option value="">— Kein Kanal —</option>
+            </select>
+          </div>
+
+          <div class="tk-row">
+            <div>
+              <div class="tk-lbl">Als Embed senden</div>
+              <div class="tk-sub">Nachricht in einem Discord-Embed anzeigen</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="it-embed"><span class="toggle-slider"></span></label>
+          </div>
+
+          <div class="tk-row" id="it-color-row">
+            <div>
+              <div class="tk-lbl">Embed-Farbe</div>
+            </div>
+            <input type="color" id="it-color" value="#57f287" style="width:48px;height:36px;border:none;background:none;cursor:pointer;padding:0">
+          </div>
+        </div>
+
+        <div class="tk-sec" style="max-width:780px">
+          <div class="tk-sec-title">Nachricht</div>
+          <div style="margin-bottom:8px;font-size:12px;color:var(--txt3)">
+            Platzhalter: <code>{mention}</code> <code>{user}</code> <code>{username}</code> <code>{inviter}</code> <code>{invitername}</code> <code>{code}</code> <code>{uses}</code> <code>{server}</code> <code>{membercount}</code>
+          </div>
+          <textarea id="it-message" class="modal-input" rows="5" style="width:100%;resize:vertical;font-family:monospace;font-size:13px"
+            placeholder="👋 {mention} hat den Server betreten!&#10;🔗 Eingeladen von: {inviter} (Code: `{code}`, Nutzungen: {uses})&#10;👥 Mitglieder: {membercount}"></textarea>
+        </div>
       </div>
     </div>
 
@@ -1289,8 +1348,9 @@ async function loadPage(page) {
   else if (page === 'settings')  loadSettings();
   else if (page === 'messages')  loadMessagesPage();
   else if (page === 'tickets')   loadTicketsPage();
-  else if (page === 'autorole')   loadAutorolePage();
-  else if (page === 'serverlog')  loadServerLogPage();
+  else if (page === 'autorole')       loadAutorolePage();
+  else if (page === 'invitetracker')  loadInviteTrackerPage();
+  else if (page === 'serverlog')      loadServerLogPage();
   else if (page === 'commands')    loadCommandsPage();
   else if (page === 'botprofile')  loadBotProfilePage();
 }
@@ -2846,6 +2906,68 @@ async function saveArConfig() {
       body: JSON.stringify(S.autoroleConfig),
     });
     toast('Autorole gespeichert!', 'ok');
+  } catch (e) { toast('Fehler: ' + e.message, 'err'); }
+}
+
+/* ══════════════════════════════════════════════
+   INVITE TRACKER
+══════════════════════════════════════════════ */
+
+async function loadInviteTrackerPage() {
+  let itCfg = { enabled: false, logChannel: null, message: '', useEmbed: true, embedColor: '#57f287' };
+  try { itCfg = await api(`/api/guilds/${S.guild.id}/invite-tracker-config`); } catch {}
+
+  // Load channels if needed
+  if (!S.channels) {
+    try { S.channels = await api(`/api/guilds/${S.guild.id}/channels`); } catch {}
+  }
+
+  // Populate channel select
+  const chSel = document.getElementById('it-channel');
+  if (chSel) {
+    const channels = S.channels || [];
+    chSel.innerHTML = '<option value="">— Kein Kanal —</option>' +
+      channels.filter(c => c.type === 0).map(c =>
+        '<option value="' + c.id + '"' + (itCfg.logChannel === c.id ? ' selected' : '') + '>#' + esc(c.name) + '</option>'
+      ).join('');
+  }
+
+  const enableEl = document.getElementById('it-enabled');
+  const embedEl  = document.getElementById('it-embed');
+  const colorEl  = document.getElementById('it-color');
+  const msgEl    = document.getElementById('it-message');
+
+  if (enableEl) enableEl.checked = !!itCfg.enabled;
+  if (embedEl)  embedEl.checked  = itCfg.useEmbed !== false;
+  if (colorEl)  colorEl.value    = itCfg.embedColor || '#57f287';
+  if (msgEl)    msgEl.value      = itCfg.message || '';
+
+  // Toggle color row on embed change
+  if (embedEl) {
+    const toggleColor = () => {
+      const row = document.getElementById('it-color-row');
+      if (row) row.style.display = embedEl.checked ? '' : 'none';
+    };
+    embedEl.onchange = toggleColor;
+    toggleColor();
+  }
+}
+
+async function saveInviteTrackerConfig() {
+  const body = {
+    enabled:     document.getElementById('it-enabled')?.checked || false,
+    logChannel:  document.getElementById('it-channel')?.value   || null,
+    useEmbed:    document.getElementById('it-embed')?.checked   !== false,
+    embedColor:  document.getElementById('it-color')?.value     || '#57f287',
+    message:     document.getElementById('it-message')?.value.trim() || '',
+  };
+  try {
+    await api(`/api/guilds/${S.guild.id}/invite-tracker-config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    toast('Invite Tracker gespeichert!', 'ok');
   } catch (e) { toast('Fehler: ' + e.message, 'err'); }
 }
 
