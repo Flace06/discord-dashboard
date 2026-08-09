@@ -1222,7 +1222,8 @@ async function handleCreateTicket(interaction, categoryId) {
   if (activeUserTickets.length >= maxPerUser) {
     const existCh = interaction.guild.channels.cache.get(activeUserTickets[0].channelId);
     return interaction.editReply({
-      content: `❌ Du hast bereits ${activeUserTickets.length}/${maxPerUser} offenes Ticket(s) in dieser Kategorie.${existCh ? ` → ${existCh}` : ''}`,
+      content: (guildCfg.existingTicketMessage || '❌ Du hast bereits ein offenes Ticket in dieser Kategorie.{channel}')
+        .replace('{channel}', existCh ? ` → ${existCh}` : ''),
     });
   }
 
