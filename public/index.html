@@ -3300,6 +3300,10 @@ function renderTkSettings() {
         <div><div class="tk-lbl">Erstellt-Nachricht</div><div class="tk-sub">{channel}, {user}</div></div>
         <input class="input-sm" id="tk-created-msg" value="${esc(cfg.createdMessage || '')}" placeholder="✅ Dein Ticket wurde erstellt: {channel}" style="width:280px">
       </div>
+      <div class="tk-row">
+        <div><div class="tk-lbl">Bereits-offen-Nachricht</div><div class="tk-sub">{channel}</div></div>
+        <input class="input-sm" id="tk-existing-msg" value="${esc(cfg.existingTicketMessage || '')}" placeholder="❌ Du hast bereits ein offenes Ticket.{channel}" style="width:280px">
+      </div>
     </div>
 
     <div class="tk-sec">
@@ -3359,9 +3363,10 @@ async function saveTkSettings() {
     },
     buttons,
     priorities,
-    naming:          document.getElementById('tk-naming')?.value.trim() || '{prefix}-{counter}',
-    closeMessage:    document.getElementById('tk-close-msg')?.value.trim() || '',
-    createdMessage:  document.getElementById('tk-created-msg')?.value.trim() || '',
+    naming:                document.getElementById('tk-naming')?.value.trim() || '{prefix}-{counter}',
+    closeMessage:          document.getElementById('tk-close-msg')?.value.trim() || '',
+    createdMessage:        document.getElementById('tk-created-msg')?.value.trim() || '',
+    existingTicketMessage: document.getElementById('tk-existing-msg')?.value.trim() || '',
   });
 
   await saveTkConfig();
