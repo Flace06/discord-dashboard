@@ -64,8 +64,20 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildInvites,
   ],
 });
+
+// ── Invite Tracker Cache ─────────────────────────────────────
+const inviteCache = new Map(); // guildId → Map(code → uses)
+
+async function cacheInvites(guild) {
+  try {
+    const invites = await guild.invites.fetch();
+    inviteCache.set(guild.id, new Map(invites.map(inv => [inv.code, inv.uses])));
+  } catch {}
+}
+// ─────────────────────────────────────────────────────────────
 
 client.once('ready', async () => {
   console.log(`🤖 Bot online als ${client.user.tag}`);
@@ -88,6 +100,22 @@ client.once('ready', async () => {
   }
 
   restartAutoCloseTimers();
+
+  // Cache invites for all guilds
+  for (const guild of client.guilds.cache.values()) {
+    await cacheInvites(guild);
+  }
+});
+
+// Keep invite cache up to date
+client.on('guildCreate',       guild  => cacheInvites(guild));
+client.on('inviteCreate',      invite => {
+  const gMap = inviteCache.get(invite.guild?.id);
+  if (gMap) gMap.set(invite.code, invite.uses);
+});
+client.on('inviteDelete',      invite => {
+  const gMap = inviteCache.get(invite.guild?.id);
+  if (gMap) gMap.delete(invite.code);
 });
 
 // ── Interaction router ───────────────────────────────────────
@@ -144,6 +172,62 @@ client.on('guildMemberAdd', async member => {
     }
   } catch (e) { console.error('Autorole error:', e.message); }
 });
+
+// ── Invite Tracker ───────────────────────────────────────────
+client.on('guildMemberAdd', async member => {
+  try {
+    const guildCfg = cfg.getGuild(member.guild.id);
+    const itCfg = guildCfg.inviteTracker;
+    if (!itCfg?.enabled || !itCfg?.logChannel) return;
+
+    // Fetch current invites and compare with cache
+    const oldMap = inviteCache.get(member.guild.id) || new Map();
+    const newInvites = await member.guild.invites.fetch().catch(() => null);
+    if (!newInvites) return;
+
+    let usedInvite = null;
+    for (const [code, inv] of newInvites) {
+      const oldUses = oldMap.get(code) || 0;
+      if (inv.uses > oldUses) { usedInvite = inv; break; }
+    }
+
+    // Update cache
+    inviteCache.set(member.guild.id, new Map(newInvites.map(inv => [inv.code, inv.uses])));
+
+    const inviter     = usedInvite?.inviter;
+    const inviteCode  = usedInvite?.code || '?';
+    const inviteUses  = usedInvite?.uses ?? '?';
+
+    const msgTemplate = itCfg.message ||
+      '👋 {mention} hat den Server betreten!\n🔗 Eingeladen von: {inviter} (Code: `{code}`, Nutzungen: {uses})\n👥 Mitglieder: {membercount}';
+
+    const content = msgTemplate
+      .replace(/{mention}/g,     `<@${member.user.id}>`)
+      .replace(/{user}/g,        member.user.tag)
+      .replace(/{username}/g,    member.user.username)
+      .replace(/{inviter}/g,     inviter ? `<@${inviter.id}>` : '*Unbekannt*')
+      .replace(/{invitername}/g, inviter?.tag || 'Unbekannt')
+      .replace(/{code}/g,        inviteCode)
+      .replace(/{uses}/g,        String(inviteUses))
+      .replace(/{server}/g,      member.guild.name)
+      .replace(/{membercount}/g, String(member.guild.memberCount));
+
+    const logCh = await client.channels.fetch(itCfg.logChannel).catch(() => null);
+    if (logCh) {
+      if (itCfg.useEmbed) {
+        const embed = new EmbedBuilder()
+          .setColor(itCfg.embedColor ? parseInt(itCfg.embedColor.replace('#',''), 16) : 0x57f287)
+          .setThumbnail(member.user.displayAvatarURL())
+          .setDescription(content)
+          .setTimestamp();
+        await logCh.send({ embeds: [embed] });
+      } else {
+        await logCh.send({ content, allowedMentions: { parse: [] } });
+      }
+    }
+  } catch (e) { console.error('Invite Tracker error:', e.message); }
+});
+// ─────────────────────────────────────────────────────────────
 
 // ════════════════════════════════════════════════════════════
 //  SERVER LOG SYSTEM
@@ -2076,6 +2160,26 @@ app.put('/api/guilds/:id/commands-config', requireAuth, (req, res) => {
     guildCfg.commandsConfig = req.body;
     cfg.saveGuild(req.params.id, guildCfg);
     res.json(guildCfg.commandsConfig);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ════════════════════════════════════════════════════════════
+//  INVITE TRACKER API
+// ════════════════════════════════════════════════════════════
+
+app.get('/api/guilds/:id/invite-tracker-config', requireAuth, (req, res) => {
+  try {
+    const guildCfg = cfg.getGuild(req.params.id);
+    res.json(guildCfg.inviteTracker || { enabled: false, logChannel: null, message: '', useEmbed: true, embedColor: '#57f287' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/guilds/:id/invite-tracker-config', requireAuth, (req, res) => {
+  try {
+    const guildCfg = cfg.getGuild(req.params.id);
+    guildCfg.inviteTracker = req.body;
+    cfg.saveGuild(req.params.id, guildCfg);
+    res.json(guildCfg.inviteTracker);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
