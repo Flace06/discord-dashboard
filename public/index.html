@@ -736,122 +736,9 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
         <h1>🤖 Bot-Profil</h1>
         <p>Profilbild, Name und Online-Status des Bots anpassen</p>
       </div>
-      <div class="pg-body">
-        <div id="bp-loading"><div class="loading"><div class="spin"></div> Laden…</div></div>
-        <div id="bp-error" style="display:none"></div>
-        <div id="bp-content" style="display:none;grid-template-columns:1fr 1fr;gap:24px;max-width:960px">
-
-          <!-- ── Col 1 ── -->
-          <div>
-            <!-- Identity -->
-            <div class="tk-sec" style="margin-bottom:20px">
-              <div class="tk-sec-title">Identität</div>
-              <div style="display:flex;align-items:center;gap:18px;margin-bottom:20px">
-                <div style="position:relative;cursor:pointer" onclick="document.getElementById('bp-av-input').click()">
-                  <img id="bp-avatar-img" src="" alt="Avatar" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--border)">
-                  <div style="position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;opacity:0;transition:.2s;font-size:22px" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0">✏️</div>
-                </div>
-                <div>
-                  <div id="bp-name-display" style="font-size:14px;font-weight:600;color:var(--txt);margin-bottom:4px"></div>
-                  <div id="bp-id-display" style="font-size:12px;color:var(--txt3);margin-bottom:8px"></div>
-                  <button class="btn" style="padding:4px 14px;font-size:12px" onclick="document.getElementById('bp-av-input').click()">📷 Bild ändern</button>
-                </div>
-              </div>
-              <input type="file" id="bp-av-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="bpPreviewAvatar(this)">
-              <div id="bp-av-preview-wrap" style="display:none;align-items:center;gap:10px;margin-bottom:14px">
-                <img id="bp-av-preview" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid var(--blurple)">
-                <span style="font-size:12px;color:var(--txt3)">Neues Bild (noch nicht gespeichert)</span>
-              </div>
-              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Benutzername</label>
-              <input id="bp-username" class="modal-input" value="" placeholder="Bot-Name" style="margin-bottom:6px">
-              <div style="font-size:11px;color:var(--txt3);margin-bottom:16px">⚠️ Discord erlaubt max. 2 Namensänderungen pro Stunde.</div>
-              <button class="btn btn-primary" style="width:100%" onclick="bpSaveIdentity()">💾 Identität speichern</button>
-            </div>
-
-            <!-- Server-Konfiguration -->
-            <div class="tk-sec">
-              <div class="tk-sec-title">Server-Konfiguration</div>
-              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Befehlsprefix</label>
-              <input id="bp-prefix" class="modal-input" value="" placeholder="!" maxlength="5" style="margin-bottom:16px;width:80px">
-              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Standard-Embed-Farbe</label>
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-                <input id="bp-defcolor" type="color" value="#5865f2" style="width:50px;height:36px;border-radius:6px;border:1px solid var(--border);cursor:pointer">
-                <span style="font-size:12px;color:var(--txt3)">Wird als Standard für Bot-Embeds verwendet</span>
-              </div>
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-                <div>
-                  <div style="font-size:13px;font-weight:600;color:var(--txt)">DM bei Moderation</div>
-                  <div style="font-size:11px;color:var(--txt3)">User bei Ban/Kick/Timeout anschreiben</div>
-                </div>
-                <label class="toggle-wrap">
-                  <input type="checkbox" id="bp-dmon" onchange="bpToggleDmSection()">
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-              <div id="bp-dm-section" style="display:none">
-                <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
-                  Platzhalter: <code>{server}</code> <code>{reason}</code> <code>{duration}</code> <code>{moderator}</code>
-                </div>
-                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Ban-Nachricht</label>
-                <textarea id="bp-dm-ban" class="modal-input" rows="2" style="margin-bottom:10px;resize:vertical;font-size:12px"></textarea>
-                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Kick-Nachricht</label>
-                <textarea id="bp-dm-kick" class="modal-input" rows="2" style="margin-bottom:10px;resize:vertical;font-size:12px"></textarea>
-                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Timeout-Nachricht</label>
-                <textarea id="bp-dm-timeout" class="modal-input" rows="2" style="margin-bottom:10px;resize:vertical;font-size:12px"></textarea>
-                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Warn-Nachricht</label>
-                <textarea id="bp-dm-warn" class="modal-input" rows="2" style="margin-bottom:10px;resize:vertical;font-size:12px"></textarea>
-              </div>
-              <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="bpSaveServerSettings()">💾 Server-Einstellungen speichern</button>
-            </div>
-          </div>
-
-          <!-- ── Col 2 ── -->
-          <div>
-            <div class="tk-sec">
-              <div class="tk-sec-title">Online-Status &amp; Aktivität</div>
-              <div style="font-size:11px;color:var(--txt3);margin-bottom:12px">💡 Wird beim Neustart wiederhergestellt</div>
-              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Status</label>
-              <select id="bp-status" class="select-sm" style="margin-bottom:16px" onchange="bpUpdatePresencePreview()">
-                <option value="online">🟢 Online</option>
-                <option value="idle">🟡 Abwesend</option>
-                <option value="dnd">🔴 Nicht stören</option>
-                <option value="invisible">⚫ Unsichtbar</option>
-              </select>
-              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Typ</label>
-              <select id="bp-act-type" class="select-sm" style="margin-bottom:16px" onchange="bpOnTypeChange()">
-                <option value="Playing">Playing</option>
-                <option value="Watching" selected>Watching</option>
-                <option value="Listening">Listening</option>
-                <option value="Streaming">Streaming</option>
-                <option value="Competing">Competing</option>
-                <option value="Custom">Custom</option>
-              </select>
-              <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Aktivitäts-Text <span style="font-weight:400">(leer = keine Aktivität)</span></label>
-              <input id="bp-act-text" class="modal-input" value="" placeholder="z.B. Server Dashboard" oninput="bpUpdatePresencePreview()" style="margin-bottom:12px">
-              <div id="bp-stream-url-wrap" style="display:none">
-                <label style="font-size:12px;color:var(--txt3);margin-bottom:4px;display:block">Stream-URL <span style="font-weight:400">(Twitch oder YouTube)</span></label>
-                <input id="bp-stream-url" class="modal-input" value="" placeholder="https://twitch.tv/…" style="margin-bottom:12px">
-              </div>
-              <!-- Preview -->
-              <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;margin-bottom:16px">
-                <div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Vorschau</div>
-                <div style="display:flex;align-items:center;gap:10px">
-                  <div style="position:relative">
-                    <img id="bp-preview-avatar" src="" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
-                    <div id="bp-status-dot" style="position:absolute;bottom:0;right:0;width:12px;height:12px;border-radius:50%;border:2px solid var(--bg3);background:var(--green2)"></div>
-                  </div>
-                  <div>
-                    <div id="bp-preview-name" style="font-size:13px;font-weight:600;color:var(--txt)">Bot</div>
-                    <div id="bp-act-preview" style="font-size:11px;color:var(--txt3)"></div>
-                  </div>
-                </div>
-              </div>
-              <button class="btn btn-primary" style="width:100%" onclick="bpSavePresence()">💾 Status speichern</button>
-            </div>
-          </div>
-
-        </div><!-- end #bp-content -->
-      </div><!-- end pg-body -->
+      <div id="bp-body" class="pg-body">
+        <div class="loading"><div class="spin"></div> Laden…</div>
+      </div>
     </div>
 
     <!-- MESSAGES -->
@@ -2606,138 +2493,133 @@ function errHtml(msg) {
    BOT PROFILE
 ══════════════════════════════════════════════ */
 async function loadBotProfilePage() {
-  const loadEl    = document.getElementById('bp-loading');
-  const errorEl   = document.getElementById('bp-error');
-  const contentEl = document.getElementById('bp-content');
-  loadEl.style.display    = '';
-  errorEl.style.display   = 'none';
-  contentEl.style.display = 'none';
-
+  const el = document.getElementById('bp-body');
+  el.innerHTML = '<div class="loading"><div class="spin"></div> Laden…</div>';
   try {
-    const [profileRes, botCfgRes] = await Promise.allSettled([
-      api('/api/bot/profile'),
-      api(`/api/guilds/${S.guild.id}/bot-settings`),
-    ]);
-
-    if (profileRes.status === 'rejected') {
-      loadEl.style.display  = 'none';
-      errorEl.style.display = '';
-      errorEl.innerHTML     = errHtml('Bot-Profil konnte nicht geladen werden: ' + (profileRes.reason?.message || 'Unbekannter Fehler'));
-      return;
-    }
-
-    S.botProfile  = profileRes.value;
-    S.botSettings = botCfgRes.status === 'fulfilled' ? botCfgRes.value : {
-      prefix: '!', defaultColor: '#5865f2', dmOnModeration: false,
-      dmMessages: { ban:'', kick:'', timeout:'', warn:'' },
-    };
-
-    populateBotProfilePage();
-    loadEl.style.display    = 'none';
-    contentEl.style.display = 'grid';
+    const p = await api('/api/bot/profile');
+    S.botProfile = p;
+    renderBotProfilePage();
   } catch (e) {
-    loadEl.style.display  = 'none';
-    errorEl.style.display = '';
-    errorEl.innerHTML     = errHtml('Unerwarteter Fehler: ' + e.message);
+    el.innerHTML = errHtml('Bot-Profil Fehler: ' + e.message);
   }
 }
 
-function populateBotProfilePage() {
-  const p  = S.botProfile  || {};
-  const pr = p.presence    || {};
-  const bs = S.botSettings || {};
-  const dm = bs.dmMessages || {};
-  const dmDefaults = {
-    ban:     'Du wurdest vom Server {server} gebannt.\nGrund: {reason}',
-    kick:    'Du wurdest vom Server {server} gekickt.\nGrund: {reason}',
-    timeout: 'Du wurdest auf dem Server {server} getimeouted.\nGrund: {reason}\nDauer: {duration}',
-    warn:    'Du hast auf dem Server {server} eine Verwarnung erhalten.\nGrund: {reason}',
-  };
+function renderBotProfilePage() {
+  const p  = S.botProfile || {};
+  const pr = p.presence   || {};
+  const av = esc(p.avatarURL  || '');
+  const un = esc(p.username   || '');
+  const id = esc(p.id         || '');
+  const at = esc(pr.activityText || '');
+  const su = esc(pr.streamUrl    || '');
 
-  // Identity
-  const avatarImg = document.getElementById('bp-avatar-img');
-  if (avatarImg) avatarImg.src = p.avatarURL || '';
-  const prevAvatar = document.getElementById('bp-preview-avatar');
-  if (prevAvatar) prevAvatar.src = p.avatarURL || '';
-  const nameDisplay = document.getElementById('bp-name-display');
-  if (nameDisplay) nameDisplay.textContent = p.username || '';
-  const idDisplay = document.getElementById('bp-id-display');
-  if (idDisplay) idDisplay.textContent = 'ID: ' + (p.id || '');
-  const usernameEl = document.getElementById('bp-username');
-  if (usernameEl) usernameEl.value = p.username || '';
+  const statusOpts = ['online','idle','dnd','invisible'].map(v =>
+    '<option value="' + v + '"' + (pr.status === v ? ' selected' : '') + '>' +
+    {online:'🟢 Online', idle:'🟡 Abwesend', dnd:'🔴 Nicht stören', invisible:'⚫ Unsichtbar'}[v] +
+    '</option>'
+  ).join('');
 
-  // Server settings
-  const prefixEl = document.getElementById('bp-prefix');
-  if (prefixEl) prefixEl.value = bs.prefix || '!';
-  const colorEl = document.getElementById('bp-defcolor');
-  if (colorEl) colorEl.value = bs.defaultColor || '#5865f2';
-  const dmonEl = document.getElementById('bp-dmon');
-  if (dmonEl) dmonEl.checked = !!bs.dmOnModeration;
-  for (const k of ['ban','kick','timeout','warn']) {
-    const el = document.getElementById('bp-dm-' + k);
-    if (el) el.value = dm[k] || dmDefaults[k] || '';
-  }
-  bpToggleDmSection();
+  const typeOpts = ['Playing','Watching','Listening','Streaming','Competing','Custom'].map(t =>
+    '<option value="' + t + '"' + (pr.activityType === t ? ' selected' : '') + '>' + t + '</option>'
+  ).join('');
 
-  // Presence
-  const statusEl = document.getElementById('bp-status');
-  if (statusEl) statusEl.value = pr.status || 'online';
-  const actTypeEl = document.getElementById('bp-act-type');
-  if (actTypeEl) actTypeEl.value = pr.activityType || 'Watching';
-  const actTextEl = document.getElementById('bp-act-text');
-  if (actTextEl) actTextEl.value = pr.activityText || '';
-  const streamUrlEl = document.getElementById('bp-stream-url');
-  if (streamUrlEl) streamUrlEl.value = pr.streamUrl || '';
-  const previewNameEl = document.getElementById('bp-preview-name');
-  if (previewNameEl) previewNameEl.textContent = p.username || 'Bot';
+  document.getElementById('bp-body').innerHTML =
+    '<div style="max-width:880px;display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">' +
 
-  bpOnTypeChange();
-  bpUpdatePresencePreview();
+    /* ── Identität ── */
+    '<div class="tk-sec" style="flex:1;min-width:340px">' +
+      '<div class="tk-sec-title">Identität</div>' +
+      '<div style="display:flex;align-items:center;gap:16px;margin-bottom:18px">' +
+        '<img id="bp-av" src="' + av + '" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--border);cursor:pointer" onclick="document.getElementById(\'bpfi\').click()">' +
+        '<div>' +
+          '<div style="font-weight:600;margin-bottom:2px">' + un + '</div>' +
+          '<div style="font-size:12px;color:var(--txt3);margin-bottom:8px">ID: ' + id + '</div>' +
+          '<button class="btn" style="font-size:12px;padding:4px 12px" onclick="document.getElementById(\'bpfi\').click()">📷 Bild ändern</button>' +
+        '</div>' +
+      '</div>' +
+      '<input type="file" id="bpfi" accept="image/*" style="display:none" onchange="bpPickAvatar(this)">' +
+      '<div id="bp-prev-wrap" style="display:none;align-items:center;gap:10px;margin-bottom:12px">' +
+        '<img id="bp-prev-img" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--blurple)">' +
+        '<span style="font-size:12px;color:var(--txt3)">Noch nicht gespeichert</span>' +
+      '</div>' +
+      '<label style="font-size:12px;color:var(--txt3);display:block;margin-bottom:4px">Benutzername</label>' +
+      '<input id="bp-name" class="modal-input" value="' + un + '" placeholder="Bot-Name" style="margin-bottom:6px">' +
+      '<div style="font-size:11px;color:var(--txt3);margin-bottom:14px">⚠️ Max. 2 Namensänderungen pro Stunde</div>' +
+      '<button class="btn btn-primary" style="width:100%" onclick="bpSaveId()">💾 Speichern</button>' +
+    '</div>' +
+
+    /* ── Status ── */
+    '<div class="tk-sec" style="flex:1;min-width:300px">' +
+      '<div class="tk-sec-title">Online-Status &amp; Aktivität</div>' +
+      '<div style="font-size:11px;color:var(--txt3);margin-bottom:12px">💡 Wird beim Neustart wiederhergestellt</div>' +
+      '<label style="font-size:12px;color:var(--txt3);display:block;margin-bottom:4px">Status</label>' +
+      '<select id="bp-status" class="select-sm" style="margin-bottom:14px" onchange="bpPrev()">' + statusOpts + '</select>' +
+      '<label style="font-size:12px;color:var(--txt3);display:block;margin-bottom:4px">Aktivitäts-Typ</label>' +
+      '<select id="bp-atype" class="select-sm" style="margin-bottom:14px" onchange="bpTypeChg()">' + typeOpts + '</select>' +
+      '<label style="font-size:12px;color:var(--txt3);display:block;margin-bottom:4px">Aktivitäts-Text</label>' +
+      '<input id="bp-atext" class="modal-input" value="' + at + '" placeholder="z.B. Server Dashboard" oninput="bpPrev()" style="margin-bottom:12px">' +
+      '<div id="bp-surl" style="' + (pr.activityType === 'Streaming' ? '' : 'display:none') + '">' +
+        '<label style="font-size:12px;color:var(--txt3);display:block;margin-bottom:4px">Stream-URL</label>' +
+        '<input id="bp-surl-in" class="modal-input" value="' + su + '" placeholder="https://twitch.tv/…" style="margin-bottom:12px">' +
+      '</div>' +
+      '<div style="background:var(--bg3);border-radius:8px;padding:12px 14px;margin-bottom:14px">' +
+        '<div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Vorschau</div>' +
+        '<div style="display:flex;align-items:center;gap:10px">' +
+          '<div style="position:relative">' +
+            '<img src="' + av + '" style="width:36px;height:36px;border-radius:50%;object-fit:cover">' +
+            '<div id="bp-dot" style="position:absolute;bottom:0;right:0;width:12px;height:12px;border-radius:50%;border:2px solid var(--bg3);background:var(--green2)"></div>' +
+          '</div>' +
+          '<div>' +
+            '<div style="font-size:13px;font-weight:600">' + un + '</div>' +
+            '<div id="bp-prev-txt" style="font-size:11px;color:var(--txt3)"></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<button class="btn btn-primary" style="width:100%" onclick="bpSaveStatus()">💾 Status speichern</button>' +
+    '</div>' +
+
+    '</div>';
+
+  bpPrev();
 }
 
-let _bpAvatarDataURL = null;
+let _bpAvDataURL = null;
 
-function bpPreviewAvatar(input) {
+function bpPickAvatar(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
-    _bpAvatarDataURL = e.target.result;
-    const prev = document.getElementById('bp-av-preview');
-    const wrap  = document.getElementById('bp-av-preview-wrap');
-    if (prev) prev.src = _bpAvatarDataURL;
+    _bpAvDataURL = e.target.result;
+    const prev = document.getElementById('bp-prev-img');
+    const wrap = document.getElementById('bp-prev-wrap');
+    if (prev) prev.src = _bpAvDataURL;
     if (wrap) wrap.style.display = 'flex';
   };
   reader.readAsDataURL(file);
 }
 
-function bpOnTypeChange() {
-  const t = document.getElementById('bp-act-type')?.value;
-  const wrap = document.getElementById('bp-stream-url-wrap');
-  if (wrap) wrap.style.display = t === 'Streaming' ? '' : 'none';
-  bpUpdatePresencePreview();
+function bpTypeChg() {
+  const t = document.getElementById('bp-atype')?.value;
+  const w = document.getElementById('bp-surl');
+  if (w) w.style.display = t === 'Streaming' ? '' : 'none';
+  bpPrev();
 }
 
-function bpToggleDmSection() {
-  const on = document.getElementById('bp-dmon')?.checked;
-  const sec = document.getElementById('bp-dm-section');
-  if (sec) sec.style.display = on ? '' : 'none';
-}
-
-function bpUpdatePresencePreview() {
+function bpPrev() {
   const status = document.getElementById('bp-status')?.value || 'online';
-  const type   = document.getElementById('bp-act-type')?.value || 'Watching';
-  const text   = document.getElementById('bp-act-text')?.value.trim() || '';
-  const statusColors = { online:'var(--green2)', idle:'#faa81a', dnd:'var(--red2)', invisible:'#747f8d' };
-  const dot = document.getElementById('bp-status-dot');
-  if (dot) dot.style.background = statusColors[status] || 'var(--green2)';
-  const prev = document.getElementById('bp-act-preview');
-  if (prev) prev.textContent = text ? `${type} ${text}` : '';
+  const type   = document.getElementById('bp-atype')?.value  || 'Watching';
+  const text   = document.getElementById('bp-atext')?.value.trim() || '';
+  const colors = { online:'var(--green2)', idle:'#faa81a', dnd:'var(--red2)', invisible:'#747f8d' };
+  const dot = document.getElementById('bp-dot');
+  if (dot) dot.style.background = colors[status] || 'var(--green2)';
+  const prev = document.getElementById('bp-prev-txt');
+  if (prev) prev.textContent = text ? type + ' ' + text : '';
 }
 
-async function bpSaveIdentity() {
-  const username      = document.getElementById('bp-username')?.value.trim();
-  const avatarDataURL = _bpAvatarDataURL;
+async function bpSaveId() {
+  const username = document.getElementById('bp-name')?.value.trim();
+  const avatarDataURL = _bpAvDataURL;
   if (!username && !avatarDataURL) { toast('Nichts zu speichern.', 'err'); return; }
   try {
     const body = {};
@@ -2748,51 +2630,27 @@ async function bpSaveIdentity() {
       body: JSON.stringify(body),
     });
     if (res.avatarURL) {
-      const img = document.getElementById('bp-avatar-img');
+      const img = document.getElementById('bp-av');
       if (img) img.src = res.avatarURL + '?t=' + Date.now();
     }
-    _bpAvatarDataURL = null;
-    const wrap = document.getElementById('bp-av-preview-wrap');
+    _bpAvDataURL = null;
+    const wrap = document.getElementById('bp-prev-wrap');
     if (wrap) wrap.style.display = 'none';
-    toast('Identität gespeichert! ✅', 'ok');
+    toast('Gespeichert! ✅', 'ok');
   } catch (e) { toast('Fehler: ' + e.message, 'err'); }
 }
 
-async function bpSavePresence() {
+async function bpSaveStatus() {
   const status       = document.getElementById('bp-status')?.value;
-  const activityType = document.getElementById('bp-act-type')?.value;
-  const activityText = document.getElementById('bp-act-text')?.value.trim();
-  const streamUrl    = document.getElementById('bp-stream-url')?.value.trim();
+  const activityType = document.getElementById('bp-atype')?.value;
+  const activityText = document.getElementById('bp-atext')?.value.trim();
+  const streamUrl    = document.getElementById('bp-surl-in')?.value.trim() || '';
   try {
     await api('/api/bot/presence', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, activityType, activityText, streamUrl }),
     });
     toast('Status gespeichert! ✅', 'ok');
-  } catch (e) { toast('Fehler: ' + e.message, 'err'); }
-}
-
-async function bpSaveServerSettings() {
-  const prefix        = document.getElementById('bp-prefix')?.value.trim() || '!';
-  const defaultColor  = document.getElementById('bp-defcolor')?.value || '#5865f2';
-  const dmOnModeration= document.getElementById('bp-dmon')?.checked || false;
-  const dmMessages    = {};
-  for (const k of ['ban','kick','timeout','warn']) {
-    const el = document.getElementById(`bp-dm-${k}`);
-    if (el) dmMessages[k] = el.value;
-  }
-  try {
-    await api(`/api/guilds/${S.guild.id}/bot-settings`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prefix, defaultColor, dmOnModeration, dmMessages }),
-    });
-    if (S.botSettings) {
-      S.botSettings.prefix = prefix;
-      S.botSettings.defaultColor = defaultColor;
-      S.botSettings.dmOnModeration = dmOnModeration;
-      S.botSettings.dmMessages = dmMessages;
-    }
-    toast('Server-Einstellungen gespeichert! ✅', 'ok');
   } catch (e) { toast('Fehler: ' + e.message, 'err'); }
 }
 
