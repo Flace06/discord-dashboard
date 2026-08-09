@@ -1294,7 +1294,10 @@ async function handleCreateTicket(interaction, categoryId) {
     await channel.send({ content: `${mentions} — Neues Ticket von <@${interaction.user.id}>` });
   }
 
-  await interaction.editReply({ content: `✅ Dein Ticket wurde erstellt: ${channel}` });
+  const createdMsg = (guildCfg.createdMessage || '✅ Dein Ticket wurde erstellt: {channel}')
+    .replace('{channel}', channel.toString())
+    .replace('{user}', `<@${interaction.user.id}>`);
+  await interaction.editReply({ content: createdMsg });
 
   // Log
   if (guildCfg.logChannel) {
