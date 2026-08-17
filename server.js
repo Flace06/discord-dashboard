@@ -133,6 +133,11 @@ const SLASH_COMMANDS = [
         options: [{ name: 'name', type: 3, description: 'Neuer Name', required: true }] },
     ],
   },
+  {
+    name: 'setupwa',
+    description: 'WhatsApp mit dem Bot verbinden (nur Admins)',
+    default_member_permissions: String(PermissionFlagsBits.Administrator),
+  },
 ];
 
 // ── Discord Client (module-level so ticket routes can access) ─
@@ -1093,7 +1098,58 @@ async function handleModCommand(msg) {
 }
 
 // ── Slash command handler ────────────────────────────────────
+async function handleSetupWA(interaction) {
+  // Already connected?
+  if (waStatus === 'ready') {
+    return interaction.reply({ content: '✅ WhatsApp ist bereits verbunden! Du kannst im Dashboard die Gruppe und Nachricht konfigurieren.', ephemeral: true });
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+  await interaction.editReply({ content: '⏳ WhatsApp wird initialisiert…' });
+
+  // Start connection if not already running
+  if (waStatus === 'disconnected') initWhatsApp();
+
+  // Wait up to 30s for QR
+  for (let i = 0; i < 30; i++) {
+    if (waStatus === 'qr' || waStatus === 'ready') break;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  if (waStatus === 'ready') {
+    return interaction.editReply({ content: '✅ WhatsApp ist bereits verbunden!' });
+  }
+
+  if (waStatus !== 'qr' || !waQR) {
+    return interaction.editReply({ content: '❌ QR-Code konnte nicht generiert werden. Versuche `/setupwa` erneut.' });
+  }
+
+  // Send QR as image
+  const buffer = Buffer.from(waQR.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+  const attachment = new AttachmentBuilder(buffer, { name: 'whatsapp-qr.png' });
+
+  await interaction.editReply({
+    content: '📱 **WhatsApp verbinden**\nScanne diesen QR-Code in der WhatsApp-App:\n> **Einstellungen → Verknüpfte Geräte → Gerät hinzufügen**\n\n⏳ Warte auf Scan…',
+    files: [attachment],
+  });
+
+  // Wait up to 90s for scan
+  for (let i = 0; i < 45; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    if (waStatus === 'ready') {
+      return interaction.editReply({ content: '✅ **WhatsApp erfolgreich verbunden!**\nIm Dashboard unter **WhatsApp** kannst du jetzt Gruppe und Nachricht konfigurieren.', files: [] });
+    }
+    if (waStatus === 'disconnected') {
+      return interaction.editReply({ content: '❌ Verbindung fehlgeschlagen. Versuche `/setupwa` erneut.', files: [] });
+    }
+  }
+
+  await interaction.editReply({ content: '⏰ Zeit abgelaufen — QR-Code ist nicht mehr gültig. Führe `/setupwa` erneut aus.', files: [] });
+}
+
 async function handleSlashCommand(interaction) {
+  if (interaction.commandName === 'setupwa') return handleSetupWA(interaction);
+
   const sub = interaction.options.getSubcommand();
   const ticket = cfg.getTicket(interaction.channel.id);
 
