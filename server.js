@@ -17,7 +17,7 @@ const {
 const cfg = require('./config');
 require('dotenv').config();
 
-// ── WhatsApp Integration (whatsapp-web.js) ───────────────────
+// ── WhatsApp Integration (Baileys – kein Browser nötig) ──────
 let waClient = null;
 let waQR     = null;
 let waStatus = 'disconnected'; // disconnected | connecting | qr | ready
@@ -26,26 +26,48 @@ async function initWhatsApp() {
   if (waClient) return;
   waStatus = 'connecting';
   try {
-    const { Client: WAClient, LocalAuth } = require('whatsapp-web.js');
-    const qrcode = require('qrcode');
+    const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+    const { Boom } = require('@hapi/boom');
+    const qrcode   = require('qrcode');
+    const P        = require('pino');
 
-    waClient = new WAClient({
-      authStrategy: new LocalAuth({ dataPath: './wa-session' }),
-      puppeteer: { args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] },
+    const { state, saveCreds } = await useMultiFileAuthState('./wa-session');
+    const { version } = await fetchLatestBaileysVersion();
+
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      logger: P({ level: 'silent' }),
+      browser: ['Discord Dashboard', 'Chrome', '1.0.0'],
     });
 
-    waClient.on('qr', async qr => {
-      waStatus = 'qr';
-      waQR = await qrcode.toDataURL(qr);
-    });
-    waClient.on('authenticated', () => { waStatus = 'connecting'; waQR = null; });
-    waClient.on('ready', () => { waStatus = 'ready'; waQR = null; console.log('✅ WhatsApp bereit'); });
-    waClient.on('disconnected', () => {
-      waStatus = 'disconnected'; waQR = null; waClient = null;
-      console.log('⚠️ WhatsApp getrennt');
+    sock.ev.on('connection.update', async update => {
+      const { connection, lastDisconnect, qr } = update;
+      if (qr) {
+        waStatus = 'qr';
+        waQR = await qrcode.toDataURL(qr);
+      }
+      if (connection === 'close') {
+        const code = (lastDisconnect?.error instanceof Boom)
+          ? lastDisconnect.error.output?.statusCode : 0;
+        waClient = null; waQR = null;
+        if (code !== DisconnectReason.loggedOut) {
+          console.log('🔄 WhatsApp reconnect…');
+          waStatus = 'disconnected';
+          setTimeout(initWhatsApp, 3000);
+        } else {
+          waStatus = 'disconnected';
+          console.log('⚠️ WhatsApp ausgeloggt');
+        }
+      } else if (connection === 'open') {
+        waStatus = 'ready'; waQR = null;
+        console.log('✅ WhatsApp bereit');
+      }
     });
 
-    waClient.initialize();
+    sock.ev.on('creds.update', saveCreds);
+    waClient = sock;
   } catch (e) {
     waStatus = 'disconnected'; waQR = null; waClient = null;
     console.error('WhatsApp init error:', e.message);
@@ -53,13 +75,16 @@ async function initWhatsApp() {
 }
 
 async function waDisconnect() {
-  try { if (waClient) await waClient.destroy(); } catch {}
+  try { if (waClient) await waClient.logout(); } catch {}
+  try { if (waClient) await waClient.end(); }   catch {}
   waClient = null; waQR = null; waStatus = 'disconnected';
+  const fs2 = require('fs');
+  try { fs2.rmSync('./wa-session', { recursive: true, force: true }); } catch {}
 }
 
 async function sendWhatsAppTicketMsg(ticket, channel, guildCfg) {
   try {
-    if (waStatus !== 'ready') return;
+    if (waStatus !== 'ready' || !waClient) return;
     const waCfg = guildCfg.whatsapp;
     if (!waCfg?.enabled || !waCfg?.groupId) return;
     const msg = (waCfg.message || '🎫 Neues Ticket!\nNutzer: {user}\nKategorie: {category}\nKanal: #{channel}\nServer: {server}')
@@ -67,7 +92,7 @@ async function sendWhatsAppTicketMsg(ticket, channel, guildCfg) {
       .replace(/{category}/g, ticket.categoryName)
       .replace(/{channel}/g,  channel.name)
       .replace(/{server}/g,   channel.guild?.name || '');
-    await waClient.sendMessage(waCfg.groupId, msg);
+    await waClient.sendMessage(waCfg.groupId, { text: msg });
   } catch (e) { console.error('WhatsApp send error:', e.message); }
 }
 // ─────────────────────────────────────────────────────────────
@@ -2260,13 +2285,11 @@ app.post('/api/whatsapp/disconnect', requireAuth, async (req, res) => {
 });
 
 app.get('/api/whatsapp/groups', requireAuth, async (req, res) => {
-  if (waStatus !== 'ready') return res.json([]);
+  if (waStatus !== 'ready' || !waClient) return res.json([]);
   try {
-    const chats = await waClient.getChats();
-    const groups = chats
-      .filter(c => c.isGroup)
-      .map(c => ({ id: c.id._serialized, name: c.name }));
-    res.json(groups);
+    const groups = await waClient.groupFetchAllParticipating();
+    const list = Object.values(groups).map(g => ({ id: g.id, name: g.subject }));
+    res.json(list);
   } catch (e) { res.json([]); }
 });
 

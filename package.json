@@ -13,8 +13,10 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
-    "qrcode": "^1.5.4",
-    "whatsapp-web.js": "^1.26.0"
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.16",
+    "pino": "^9.0.0",
+    "qrcode": "^1.5.4"
   },
   "engines": {
     "node": ">=18.0.0"
