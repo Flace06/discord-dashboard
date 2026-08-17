@@ -598,6 +598,7 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
 
       <div class="nav-label">Ticket-System</div>
       <div class="nav-item" data-page="tickets"><span class="ni">🎫</span> Tickets</div>
+      <div class="nav-item" data-page="whatsapp"><span class="ni">💬</span> WhatsApp</div>
 
       <div class="nav-label">Automatisierung</div>
       <div class="nav-item" data-page="autorole"><span class="ni">🤖</span> Autorole</div>
@@ -934,6 +935,70 @@ tbody td { padding: 11px 16px; font-size: 14px; vertical-align: middle; }
           <textarea id="it-message" class="modal-input" rows="5" style="width:100%;resize:vertical;font-family:monospace;font-size:13px"
             placeholder="👋 {mention} hat den Server betreten!&#10;🔗 Eingeladen von: {inviter} (Code: `{code}`, Nutzungen: {uses})&#10;👥 Mitglieder: {membercount}"></textarea>
         </div>
+      </div>
+    </div>
+
+    <!-- WHATSAPP -->
+    <div id="page-whatsapp" class="hidden">
+      <div class="pg-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <h1>💬 WhatsApp</h1>
+          <p>Sende automatisch eine WhatsApp-Nachricht wenn ein Ticket geöffnet wird</p>
+        </div>
+        <button class="btn btn-primary" onclick="saveWhatsAppConfig()">💾 Speichern</button>
+      </div>
+      <div class="pg-body">
+
+        <!-- Connection card -->
+        <div class="tk-sec" style="max-width:780px;margin-bottom:20px">
+          <div class="tk-sec-title">Verbindung</div>
+          <div class="tk-row">
+            <div>
+              <div class="tk-lbl">Status</div>
+              <div id="wa-status-text" class="tk-sub">Wird geladen…</div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary btn-sm" id="wa-connect-btn" onclick="waConnect()">Verbinden</button>
+              <button class="btn btn-danger btn-sm" id="wa-disconnect-btn" onclick="waDisconnect()" style="display:none">Trennen</button>
+            </div>
+          </div>
+          <div id="wa-qr-wrap" style="display:none;flex-direction:column;align-items:center;gap:12px;padding:20px 0">
+            <div style="font-size:13px;color:var(--txt2);text-align:center">Scanne diesen QR-Code in der WhatsApp-App<br><b>Einstellungen → Verknüpfte Geräte → Gerät hinzufügen</b></div>
+            <img id="wa-qr-img" src="" style="width:220px;height:220px;border-radius:12px;border:3px solid var(--border)">
+          </div>
+        </div>
+
+        <!-- Settings card -->
+        <div class="tk-sec" style="max-width:780px;margin-bottom:20px">
+          <div class="tk-sec-title">Einstellungen</div>
+          <div class="tk-row">
+            <div>
+              <div class="tk-lbl">Benachrichtigung aktiviert</div>
+              <div class="tk-sub">WhatsApp-Nachricht bei neuem Ticket senden</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="wa-enabled"><span class="toggle-slider"></span></label>
+          </div>
+          <div class="tk-row">
+            <div style="flex:1">
+              <div class="tk-lbl">WhatsApp-Gruppe</div>
+              <div class="tk-sub" id="wa-group-hint">Bitte zuerst verbinden um Gruppen zu laden</div>
+            </div>
+            <select id="wa-group" class="modal-input" style="width:240px">
+              <option value="">— Gruppe wählen —</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Message card -->
+        <div class="tk-sec" style="max-width:780px">
+          <div class="tk-sec-title">Nachricht</div>
+          <div style="margin-bottom:8px;font-size:12px;color:var(--txt3)">
+            Platzhalter: <code>{user}</code> <code>{category}</code> <code>{channel}</code> <code>{server}</code>
+          </div>
+          <textarea id="wa-message" class="modal-input" rows="5" style="width:100%;resize:vertical;font-family:monospace;font-size:13px"
+            placeholder="🎫 Neues Ticket!&#10;Nutzer: {user}&#10;Kategorie: {category}&#10;Kanal: #{channel}&#10;Server: {server}"></textarea>
+        </div>
+
       </div>
     </div>
 
@@ -1350,6 +1415,7 @@ async function loadPage(page) {
   else if (page === 'tickets')   loadTicketsPage();
   else if (page === 'autorole')       loadAutorolePage();
   else if (page === 'invitetracker')  loadInviteTrackerPage();
+  else if (page === 'whatsapp')       loadWhatsAppPage();
   else if (page === 'serverlog')      loadServerLogPage();
   else if (page === 'commands')    loadCommandsPage();
   else if (page === 'botprofile')  loadBotProfilePage();
@@ -2968,6 +3034,102 @@ async function saveInviteTrackerConfig() {
       body: JSON.stringify(body),
     });
     toast('Invite Tracker gespeichert!', 'ok');
+  } catch (e) { toast('Fehler: ' + e.message, 'err'); }
+}
+
+/* ══════════════════════════════════════════════
+   WHATSAPP
+══════════════════════════════════════════════ */
+
+let waPollTimer = null;
+
+async function loadWhatsAppPage() {
+  // Load saved config
+  let waCfg = { enabled: false, groupId: null, message: '' };
+  try { waCfg = await api(`/api/guilds/${S.guild.id}/whatsapp-config`); } catch {}
+
+  const enabledEl = document.getElementById('wa-enabled');
+  const msgEl     = document.getElementById('wa-message');
+  const groupEl   = document.getElementById('wa-group');
+
+  if (enabledEl) enabledEl.checked = !!waCfg.enabled;
+  if (msgEl)     msgEl.value       = waCfg.message || '';
+
+  // Poll status
+  await refreshWaStatus(waCfg.groupId);
+  clearInterval(waPollTimer);
+  waPollTimer = setInterval(() => refreshWaStatus(waCfg?.groupId), 3000);
+}
+
+async function refreshWaStatus(savedGroupId) {
+  try {
+    const s = await api('/api/whatsapp/status');
+    const statusText = document.getElementById('wa-status-text');
+    const qrWrap     = document.getElementById('wa-qr-wrap');
+    const qrImg      = document.getElementById('wa-qr-img');
+    const connectBtn = document.getElementById('wa-connect-btn');
+    const discBtn    = document.getElementById('wa-disconnect-btn');
+    const groupHint  = document.getElementById('wa-group-hint');
+
+    if (!statusText) return;
+
+    const labels = { disconnected: '🔴 Nicht verbunden', connecting: '🟡 Verbinde…', qr: '🟡 QR-Code scannen', ready: '🟢 Verbunden' };
+    statusText.textContent = labels[s.status] || s.status;
+
+    // QR
+    if (s.status === 'qr' && s.qr) {
+      qrWrap.style.display = 'flex';
+      qrImg.src = s.qr;
+    } else {
+      qrWrap.style.display = 'none';
+    }
+
+    // Buttons
+    if (connectBtn) connectBtn.style.display  = s.status === 'disconnected' ? '' : 'none';
+    if (discBtn)    discBtn.style.display      = s.status === 'ready' ? '' : 'none';
+
+    // Load groups if ready
+    if (s.status === 'ready') {
+      if (groupHint) groupHint.textContent = 'Wähle die Gruppe in die geschrieben werden soll';
+      const groupEl = document.getElementById('wa-group');
+      if (groupEl && groupEl.options.length <= 1) {
+        try {
+          const groups = await api('/api/whatsapp/groups');
+          groupEl.innerHTML = '<option value="">— Gruppe wählen —</option>' +
+            groups.map(g => '<option value="' + g.id + '"' + (savedGroupId === g.id ? ' selected' : '') + '>' + esc(g.name) + '</option>').join('');
+        } catch {}
+      }
+    }
+  } catch {}
+}
+
+async function waConnect() {
+  document.getElementById('wa-status-text').textContent = '🟡 Verbinde…';
+  document.getElementById('wa-connect-btn').style.display = 'none';
+  await api('/api/whatsapp/connect', { method: 'POST' }).catch(() => {});
+}
+
+async function waDisconnect() {
+  await api('/api/whatsapp/disconnect', { method: 'POST' }).catch(() => {});
+  const groupEl = document.getElementById('wa-group');
+  if (groupEl) groupEl.innerHTML = '<option value="">— Gruppe wählen —</option>';
+  clearInterval(waPollTimer);
+  waPollTimer = setInterval(() => refreshWaStatus(null), 3000);
+}
+
+async function saveWhatsAppConfig() {
+  const body = {
+    enabled:  document.getElementById('wa-enabled')?.checked || false,
+    groupId:  document.getElementById('wa-group')?.value     || null,
+    message:  document.getElementById('wa-message')?.value.trim() || '',
+  };
+  try {
+    await api(`/api/guilds/${S.guild.id}/whatsapp-config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    toast('WhatsApp-Config gespeichert!', 'ok');
   } catch (e) { toast('Fehler: ' + e.message, 'err'); }
 }
 
