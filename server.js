@@ -17,6 +17,61 @@ const {
 const cfg = require('./config');
 require('dotenv').config();
 
+// ── WhatsApp Integration (whatsapp-web.js) ───────────────────
+let waClient = null;
+let waQR     = null;
+let waStatus = 'disconnected'; // disconnected | connecting | qr | ready
+
+async function initWhatsApp() {
+  if (waClient) return;
+  waStatus = 'connecting';
+  try {
+    const { Client: WAClient, LocalAuth } = require('whatsapp-web.js');
+    const qrcode = require('qrcode');
+
+    waClient = new WAClient({
+      authStrategy: new LocalAuth({ dataPath: './wa-session' }),
+      puppeteer: { args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] },
+    });
+
+    waClient.on('qr', async qr => {
+      waStatus = 'qr';
+      waQR = await qrcode.toDataURL(qr);
+    });
+    waClient.on('authenticated', () => { waStatus = 'connecting'; waQR = null; });
+    waClient.on('ready', () => { waStatus = 'ready'; waQR = null; console.log('✅ WhatsApp bereit'); });
+    waClient.on('disconnected', () => {
+      waStatus = 'disconnected'; waQR = null; waClient = null;
+      console.log('⚠️ WhatsApp getrennt');
+    });
+
+    waClient.initialize();
+  } catch (e) {
+    waStatus = 'disconnected'; waQR = null; waClient = null;
+    console.error('WhatsApp init error:', e.message);
+  }
+}
+
+async function waDisconnect() {
+  try { if (waClient) await waClient.destroy(); } catch {}
+  waClient = null; waQR = null; waStatus = 'disconnected';
+}
+
+async function sendWhatsAppTicketMsg(ticket, channel, guildCfg) {
+  try {
+    if (waStatus !== 'ready') return;
+    const waCfg = guildCfg.whatsapp;
+    if (!waCfg?.enabled || !waCfg?.groupId) return;
+    const msg = (waCfg.message || '🎫 Neues Ticket!\nNutzer: {user}\nKategorie: {category}\nKanal: #{channel}\nServer: {server}')
+      .replace(/{user}/g,     ticket.userName)
+      .replace(/{category}/g, ticket.categoryName)
+      .replace(/{channel}/g,  channel.name)
+      .replace(/{server}/g,   channel.guild?.name || '');
+    await waClient.sendMessage(waCfg.groupId, msg);
+  } catch (e) { console.error('WhatsApp send error:', e.message); }
+}
+// ─────────────────────────────────────────────────────────────
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
 const API  = 'https://discord.com/api/v10';
@@ -1399,6 +1454,9 @@ async function handleCreateTicket(interaction, categoryId) {
   }
 
   if (guildCfg.autoClose?.enabled) scheduleAutoClose(channel.id, ticket, guildCfg);
+
+  // WhatsApp notification
+  sendWhatsAppTicketMsg(ticket, channel, guildCfg).catch(() => {});
 }
 
 // ── Close ticket ─────────────────────────────────────────────
@@ -2180,6 +2238,51 @@ app.put('/api/guilds/:id/invite-tracker-config', requireAuth, (req, res) => {
     guildCfg.inviteTracker = req.body;
     cfg.saveGuild(req.params.id, guildCfg);
     res.json(guildCfg.inviteTracker);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ════════════════════════════════════════════════════════════
+//  WHATSAPP API
+// ════════════════════════════════════════════════════════════
+
+app.get('/api/whatsapp/status', requireAuth, (req, res) => {
+  res.json({ status: waStatus, qr: waStatus === 'qr' ? waQR : null });
+});
+
+app.post('/api/whatsapp/connect', requireAuth, async (req, res) => {
+  await initWhatsApp();
+  res.json({ status: waStatus });
+});
+
+app.post('/api/whatsapp/disconnect', requireAuth, async (req, res) => {
+  await waDisconnect();
+  res.json({ status: waStatus });
+});
+
+app.get('/api/whatsapp/groups', requireAuth, async (req, res) => {
+  if (waStatus !== 'ready') return res.json([]);
+  try {
+    const chats = await waClient.getChats();
+    const groups = chats
+      .filter(c => c.isGroup)
+      .map(c => ({ id: c.id._serialized, name: c.name }));
+    res.json(groups);
+  } catch (e) { res.json([]); }
+});
+
+app.get('/api/guilds/:id/whatsapp-config', requireAuth, (req, res) => {
+  try {
+    const g = cfg.getGuild(req.params.id);
+    res.json(g.whatsapp || { enabled: false, groupId: null, message: '' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/guilds/:id/whatsapp-config', requireAuth, (req, res) => {
+  try {
+    const g = cfg.getGuild(req.params.id);
+    g.whatsapp = req.body;
+    cfg.saveGuild(req.params.id, g);
+    res.json(g.whatsapp);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
